@@ -144,5 +144,5 @@ wordcloud==1.9.2
 wsproto==1.2.0
 xlsxwriter==3.2.2
 xml-python==0.4.3
-yt-dlp==2026.3.17
+yt-dlp==2026.6.9
 zopfli==0.2.3.post1

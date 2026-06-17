@@ -1,4 +1,4 @@
-torch==2.11.0
+torch==2.12.0
 torchaudio==2.11.0
 aeppl==0.0.31
 aesara==2.7.3
@@ -194,5 +194,5 @@ xarray-einstats==0.8.0
 xarray==2024.3.0
 xlsxwriter==3.2.2
 xml-python==0.4.3
-yt-dlp==2026.3.17
+yt-dlp==2026.6.9
 zopfli==0.2.3.post1
