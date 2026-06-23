@@ -1,7 +1,11 @@
 using FluentAssertions;
 using GuideAntsApi.DataModel;
 using GuideAntsApi.DataModel.Models;
+using GuideAntsApi.Models;
 using GuideAntsApi.Models.Guides;
+using GuideAntsApi.Services.Guides;
+using GuideAntsApi.Services.SystemGuide;
+using GuideAntsApi.Settings;
 using GuideAntsApi.Services.LlamaCpp;
 using GuideAntsApi.Tests.BackgroundJobs;
 using Moq;
@@ -27,6 +31,64 @@ public sealed class GuidesServiceTests
 
         guides.Should().ContainSingle();
         guides[0].Name.Should().Be("Guide One");
+    }
+
+    [TestMethod]
+    public async Task GetGuidesAsync_Excludes_system_guide_ids_from_settings()
+    {
+        var options = BackgroundJobTestHelpers.CreateInMemoryOptions($"guides-system-filter-{Guid.NewGuid():N}");
+        await using var context = new ApplicationDbContext(options);
+        var systemGuideId = Guid.NewGuid();
+        var regularGuideId = Guid.NewGuid();
+        context.Assistants.AddRange(
+            new Assistant { Id = systemGuideId, Name = "GuideAnts Guide", Kind = AssistantKind.Guide, Created = DateTime.UtcNow },
+            new Assistant { Id = regularGuideId, Name = "Team Guide", Kind = AssistantKind.Guide, Created = DateTime.UtcNow });
+        await context.SaveChangesAsync();
+
+        var store = new Mock<GuideAntsApi.Settings.IGuideAntsSystemSettingsStore>();
+        store.Setup(s => s.GetAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GuideAntsApi.Settings.GuideAntsSystemSettings { UserGuideId = systemGuideId });
+
+        var service = GuidesServiceTestHelper.CreateGuidesService(
+            context,
+            catalogFilter: new SystemGuideCatalogFilter(store.Object, context));
+
+        var guides = (await service.GetGuidesAsync()).ToList();
+
+        guides.Should().ContainSingle();
+        guides[0].Id.Should().Be(regularGuideId);
+    }
+
+    [TestMethod]
+    public async Task GetGuidesAsync_Includes_system_guides_for_system_project()
+    {
+        var options = BackgroundJobTestHelpers.CreateInMemoryOptions($"guides-system-include-{Guid.NewGuid():N}");
+        await using var context = new ApplicationDbContext(options);
+        var systemGuideId = Guid.NewGuid();
+        var systemProjectId = Guid.NewGuid();
+        context.Projects.Add(new Project
+        {
+            Id = systemProjectId,
+            Title = "GuideAnts System",
+            IsSystemProject = true
+        });
+        context.Assistants.AddRange(
+            new Assistant { Id = systemGuideId, Name = "GuideAnts Guide", Kind = AssistantKind.Guide, Created = DateTime.UtcNow },
+            new Assistant { Name = "Team Guide", Kind = AssistantKind.Guide, Created = DateTime.UtcNow });
+        await context.SaveChangesAsync();
+
+        var store = new Mock<IGuideAntsSystemSettingsStore>();
+        store.Setup(s => s.GetAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GuideAntsSystemSettings { UserGuideId = systemGuideId });
+
+        var service = GuidesServiceTestHelper.CreateGuidesService(
+            context,
+            catalogFilter: new SystemGuideCatalogFilter(store.Object, context));
+
+        var guides = (await service.GetGuidesAsync(systemProjectId)).ToList();
+
+        guides.Should().HaveCount(2);
+        guides.Select(g => g.Id).Should().Contain(systemGuideId);
     }
 
     [TestMethod]
@@ -82,6 +144,34 @@ public sealed class GuidesServiceTests
     }
 
     [TestMethod]
+    public async Task Guide_environment_is_scoped_by_project()
+    {
+        var options = BackgroundJobTestHelpers.CreateInMemoryOptions($"guide-env-project-{Guid.NewGuid():N}");
+        await using var context = new ApplicationDbContext(options);
+        var projectA = new Project { Title = "Project A", Slug = "project-a" };
+        var projectB = new Project { Title = "Project B", Slug = "project-b" };
+        context.Projects.AddRange(projectA, projectB);
+        await context.SaveChangesAsync();
+
+        var service = GuidesServiceTestHelper.CreateGuidesService(context);
+        var created = await service.CreateGuideAsync(MinimalCreateGuideDto("Env Guide") with
+        {
+            ProjectId = projectA.Id,
+            EnvironmentVariables = [new EnvironmentVariableDto("API_MODE", "project-a", false)]
+        });
+
+        var projectADetails = await service.GetGuideAsync(created.Id, projectA.Id);
+        var projectBDetails = await service.GetGuideAsync(created.Id, projectB.Id);
+        var unscopedDetails = await service.GetGuideAsync(created.Id);
+
+        projectADetails!.EnvironmentVariables.Should()
+            .ContainSingle()
+            .Which.Should().BeEquivalentTo(new EnvironmentVariableDto("API_MODE", "project-a", false));
+        projectBDetails!.EnvironmentVariables.Should().BeNull();
+        unscopedDetails!.EnvironmentVariables.Should().BeNull();
+    }
+
+    [TestMethod]
     public async Task ValidateRuntimeCompatibilityAsync_Returns_valid_for_empty_members()
     {
         var options = BackgroundJobTestHelpers.CreateInMemoryOptions($"guides-validate-{Guid.NewGuid():N}");
@@ -125,10 +215,27 @@ public sealed class GuidesServiceTests
             }
             """;
 
-        var json = await service.PreviewToolDefinitionAsync(new PreviewToolDefinitionDto(fragment, "{}"));
+        var result = await service.PreviewToolDefinitionAsync(new PreviewToolDefinitionDto(fragment, WebApiSpec()));
 
-        json.Should().Contain("listItems");
+        result.ToolDefinition.Should().Contain("listItems");
     }
+
+    private static string WebApiSpec() => """
+        {
+          "openapi": "3.0.0",
+          "info": { "title": "Web API", "version": "1.0.0" },
+          "servers": [{ "url": "https://api.example.com" }],
+          "paths": {
+            "/items": {
+              "get": {
+                "operationId": "listItems",
+                "summary": "List items",
+                "responses": { "200": { "description": "ok" } }
+              }
+            }
+          }
+        }
+        """;
 
     [TestMethod]
     public async Task PreviewToolDefinitionAsync_Throws_for_invalid_fragment()
@@ -208,6 +315,7 @@ public sealed class GuidesServiceTests
         const string openApiSpec = """
             {
               "openapi": "3.0.0",
+              "info": { "title": "Example API", "version": "1.0.0" },
               "servers": [{ "url": "https://api.example.com" }],
               "paths": {
                 "/items": {

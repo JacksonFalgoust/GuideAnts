@@ -5,7 +5,9 @@ using GuideAntsApi.DataModel;
 using GuideAntsApi.Services.Components;
 using GuideAntsApi.Services.Guides;
 using GuideAntsApi.Services.LlamaCpp;
+using GuideAntsApi.Services.SystemGuide;
 using GuideAntsApi.Tests.TestUtils;
+using GuideAntsApi.Settings;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -17,11 +19,14 @@ internal static class GuidesServiceTestHelper
 {
     internal static GuidesService CreateGuidesService(
         ApplicationDbContext context,
-        IRuntimeProfileResolver? runtimeProfileResolver = null) =>
+        IRuntimeProfileResolver? runtimeProfileResolver = null,
+        ISystemGuideCatalogFilter? catalogFilter = null) =>
         new(
             context,
             CreateMarkdownExtractionService(),
             runtimeProfileResolver ?? Mock.Of<IRuntimeProfileResolver>(),
+            new StaticOptionsMonitor<SettingsSecretsOptions>(CreateSecretsOptions()),
+            catalogFilter ?? EmptySystemGuideCatalogFilter.Instance,
             NullLogger<GuidesService>.Instance);
 
     internal static GuideExportImportService CreateExportImportService(ApplicationDbContext context, DbContextOptions<ApplicationDbContext> options) =>
@@ -50,4 +55,19 @@ internal static class GuidesServiceTestHelper
             configuration,
             NullLogger<MarkdownExtractionService>.Instance);
     }
+
+    private static SettingsSecretsOptions CreateSecretsOptions() => new()
+    {
+        ActiveKeyId = "test",
+        Keys = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["test"] = Convert.ToBase64String(new byte[]
+            {
+                1, 2, 3, 4, 5, 6, 7, 8,
+                9, 10, 11, 12, 13, 14, 15, 16,
+                17, 18, 19, 20, 21, 22, 23, 24,
+                25, 26, 27, 28, 29, 30, 31, 32
+            })
+        }
+    };
 }

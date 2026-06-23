@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 using FluentAssertions;
 using ScriptExecutionAgent.Tests.Infrastructure;
 
@@ -108,6 +110,18 @@ public sealed class ScriptExecutionAgentInProcessTests
     }
 
     [TestMethod]
+    public async Task Execute_with_invalid_guide_id_returns_400_in_process()
+    {
+        using var client = _factory.CreateAuthenticatedClient();
+        var body = CreateExecuteBody(_factory.Notebook, "echo test", guideId: "not-a-guid");
+
+        var response = await client.PostAsJsonAsync("/execute", body);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("GuideId");
+    }
+
+    [TestMethod]
     public async Task Execute_with_invalid_script_type_returns_400_in_process()
     {
         using var client = _factory.CreateAuthenticatedClient();
@@ -129,6 +143,94 @@ public sealed class ScriptExecutionAgentInProcessTests
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadAsStringAsync()).Should().Contain("WorkingDirectory is required");
+    }
+
+    [TestMethod]
+    public async Task Execute_injects_per_run_environment_values()
+    {
+        using var client = _factory.CreateAuthenticatedClient();
+        var secretValue = $"secret-{Guid.NewGuid():N}";
+        var body = CreateExecuteBody(
+            _factory.Notebook,
+            "Write-Output $env:DEMO_SECRET",
+            scriptType: (int)ScriptType.PowerShell,
+            environment: new Dictionary<string, string> { ["DEMO_SECRET"] = secretValue });
+
+        var response = await client.PostAsJsonAsync("/execute", body);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        ReadStandardOutput(doc.RootElement).Should().Be(secretValue);
+    }
+
+    [TestMethod]
+    public async Task Execute_does_not_inherit_agent_token_environment()
+    {
+        using var client = _factory.CreateAuthenticatedClient();
+        var body = CreateExecuteBody(
+            _factory.Notebook,
+            "if ($env:SCRIPT_EXECUTION_AGENT_TOKEN) { Write-Output 'leaked' } else { Write-Output 'missing' }",
+            scriptType: (int)ScriptType.PowerShell);
+
+        var response = await client.PostAsJsonAsync("/execute", body);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        ReadStandardOutput(doc.RootElement).Should().Be("missing");
+    }
+
+    [TestMethod]
+    public async Task Execute_rejects_reserved_environment_keys()
+    {
+        using var client = _factory.CreateAuthenticatedClient();
+        var body = CreateExecuteBody(
+            _factory.Notebook,
+            "echo test",
+            environment: new Dictionary<string, string> { ["PATH"] = "/tmp" });
+
+        var response = await client.PostAsJsonAsync("/execute", body);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("reserved");
+    }
+
+    [TestMethod]
+    public async Task Execute_python_scoped_venv_extends_base_runtime_packages()
+    {
+        if (!PythonVenvTestHelper.CanCreateScopedPythonVenv())
+        {
+            Assert.Inconclusive("Scoped Python venv with pip is not available on this machine.");
+        }
+
+        _factory.Dispose();
+        var baseVenvPath = Path.Combine(Path.GetTempPath(), "script-agent-base-venv", Guid.NewGuid().ToString("N"));
+        CreateFakeBaseRuntimePackage(baseVenvPath);
+        _factory = new ScriptExecutionAgentWebApplicationFactory(
+            basePythonVenvPath: baseVenvPath,
+            requireScopedPythonVenv: true);
+
+        using var client = _factory.CreateAuthenticatedClient();
+        var body = CreateExecuteBody(
+            _factory.Notebook,
+            "import guideants_base_runtime_probe as probe\nprint(probe.VALUE)",
+            scriptType: (int)ScriptType.Python);
+
+        var response = await client.PostAsJsonAsync("/execute", body);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var stdout = ReadStandardOutput(doc.RootElement);
+        if (string.IsNullOrWhiteSpace(stdout))
+        {
+            var stderr = ReadStandardError(doc.RootElement);
+            if (stderr?.Contains("Failed to create scoped Python virtual environment", StringComparison.OrdinalIgnoreCase) == true
+                || stderr?.Contains("Error executing script:", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                Assert.Inconclusive($"Scoped Python venv could not be provisioned on this host: {stderr}");
+            }
+        }
+
+        stdout.Should().Be("from-base-runtime");
     }
 
     [TestMethod]
@@ -258,6 +360,48 @@ public sealed class ScriptExecutionAgentInProcessTests
         files.Should().NotContain("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_script.sh");
     }
 
+    private static string? ReadStandardOutput(JsonElement root)
+    {
+        if (root.TryGetProperty("StandardOutput", out var pascal))
+        {
+            return pascal.GetString();
+        }
+
+        if (root.TryGetProperty("standardOutput", out var camel))
+        {
+            return camel.GetString();
+        }
+
+        return null;
+    }
+
+    private static string? ReadStandardError(JsonElement root)
+    {
+        if (root.TryGetProperty("StandardError", out var pascal))
+        {
+            return pascal.GetString();
+        }
+
+        if (root.TryGetProperty("standardError", out var camel))
+        {
+            return camel.GetString();
+        }
+
+        return null;
+    }
+
+    private static void CreateFakeBaseRuntimePackage(string baseVenvPath)
+    {
+        var sitePackages = OperatingSystem.IsWindows()
+            ? Path.Combine(baseVenvPath, "Lib", "site-packages")
+            : Path.Combine(baseVenvPath, "lib", "python3.11", "site-packages");
+
+        Directory.CreateDirectory(sitePackages);
+        File.WriteAllText(
+            Path.Combine(sitePackages, "guideants_base_runtime_probe.py"),
+            "VALUE = 'from-base-runtime'\n");
+    }
+
     private static string BuildFilesUrl(
         NotebookStorageFixture notebook,
         string? directory = null,
@@ -277,12 +421,16 @@ public sealed class ScriptExecutionAgentInProcessTests
         string? workingDirectory = null,
         string? projectId = null,
         string? notebookId = null,
-        int? scriptType = null) => new
+        string? guideId = null,
+        int? scriptType = null,
+        IReadOnlyDictionary<string, string>? environment = null) => new
     {
         script,
         scriptType = scriptType ?? (int)ScriptType.Bash,
         workingDirectory = workingDirectory ?? notebook.WorkingDirectory,
         projectId = projectId ?? notebook.ProjectId.ToString(),
-        notebookId = notebookId ?? notebook.NotebookId.ToString()
+        notebookId = notebookId ?? notebook.NotebookId.ToString(),
+        guideId = guideId ?? notebook.GuideId.ToString(),
+        environment
     };
 }

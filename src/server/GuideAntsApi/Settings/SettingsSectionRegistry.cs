@@ -260,7 +260,15 @@ public sealed class SettingsSectionRegistry : ISettingsSectionRegistry
                 new("DoclingPdfBackend", "DocumentIntelligence:DoclingPdfBackend"),
                 new("DoclingTableMode", "DocumentIntelligence:DoclingTableMode"),
                 new("DoclingTableCellMatching", "DocumentIntelligence:DoclingTableCellMatching"),
-                new("DoclingImageExportMode", "DocumentIntelligence:DoclingImageExportMode")
+                new("DoclingImageExportMode", "DocumentIntelligence:DoclingImageExportMode"),
+                new("DoclingOcrLang", "DocumentIntelligence:DoclingOcrLang"),
+                new("DoclingPipeline", "DocumentIntelligence:DoclingPipeline"),
+                new("DoclingDoCodeEnrichment", "DocumentIntelligence:DoclingDoCodeEnrichment", SettingsValueType.Bool),
+                new("DoclingDoFormulaEnrichment", "DocumentIntelligence:DoclingDoFormulaEnrichment", SettingsValueType.Bool),
+                new("DoclingDoPictureClassification", "DocumentIntelligence:DoclingDoPictureClassification", SettingsValueType.Bool),
+                new("DoclingDoPictureDescription", "DocumentIntelligence:DoclingDoPictureDescription", SettingsValueType.Bool),
+                new("DoclingPictureDescriptionPreset", "DocumentIntelligence:DoclingPictureDescriptionPreset"),
+                new("DoclingApiKey", "DocumentIntelligence:DoclingApiKey", IsSecret: true)
             ]
         },
         new()
@@ -441,6 +449,24 @@ public sealed class SettingsSectionRegistry : ISettingsSectionRegistry
                 new("TopP", "ChatDefaults:TopP"),
                 new("ReasoningEffort", "ChatDefaults:ReasoningEffort"),
                 new("SamplingParametersJson", "ChatDefaults:SamplingParametersJson")
+            ]
+        },
+        new()
+        {
+            SectionName = GuideAntsSystemSettings.SectionName,
+            Properties =
+            [
+                new("projectId", "GuideAntsSystem:ProjectId"),
+                new("userGuideId", "GuideAntsSystem:UserGuideId"),
+                new("adminGuideId", "GuideAntsSystem:AdminGuideId"),
+                new("userNotebookId", "GuideAntsSystem:UserNotebookId"),
+                new("adminNotebookId", "GuideAntsSystem:AdminNotebookId"),
+                new("userPublishedGuideId", "GuideAntsSystem:UserPublishedGuideId"),
+                new("adminPublishedGuideId", "GuideAntsSystem:AdminPublishedGuideId"),
+                new(
+                    "clientBridgeId",
+                    "GuideAntsSystem:ClientBridgeId",
+                    DefaultValue: GuideAntsSystemSettings.DefaultClientBridgeId)
             ]
         }
     ];
