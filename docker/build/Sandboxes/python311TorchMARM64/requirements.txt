@@ -1,4 +1,4 @@
-torch==2.11.0
+torch==2.12.1
 torchaudio==2.11.0
 aeppl==0.0.31
 aesara==2.7.3
@@ -110,7 +110,7 @@ oscrypto==1.3.0
 patsy==1.0.1
 pbixray>=0.5.0
 pdf2image==1.16.3
-pdfkit==0.6.1
+pdfkit==1.0.0
 pdfminer.six==20260107
 pdfplumber==0.11.10
 pdfrw==0.4
@@ -183,7 +183,7 @@ torchtext
 trimesh==3.9.29
 types-dataclasses==0.6.6
 types-python-dateutil==2.9.0.20241206
-ujson==5.12.1
+ujson==5.13.0
 uvicorn==0.19.0
 uvloop==0.21.0
 wand==0.6.13
