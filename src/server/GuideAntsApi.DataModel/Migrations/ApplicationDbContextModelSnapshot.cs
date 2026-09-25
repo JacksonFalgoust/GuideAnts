@@ -981,6 +981,7 @@ namespace GuideAntsApi.DataModel.Migrations
                         .HasDefaultValueSql("GETUTCDATE()");
 
                     b.Property<Guid?>("ExecutionId")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("FilesCreated")
@@ -1006,6 +1007,7 @@ namespace GuideAntsApi.DataModel.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Status")
+                        .IsConcurrencyToken()
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(20)
@@ -1826,6 +1828,9 @@ namespace GuideAntsApi.DataModel.Migrations
                     b.Property<bool>("CombineSystemAndDeveloperMessages")
                         .HasColumnType("bit");
 
+                    b.Property<int?>("ContextWindowTokens")
+                        .HasColumnType("int");
+
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2")
@@ -1845,6 +1850,9 @@ namespace GuideAntsApi.DataModel.Migrations
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
+
+                    b.Property<int?>("MaxOutputTokens")
+                        .HasColumnType("int");
 
                     b.Property<string>("Provider")
                         .IsRequired()
@@ -1957,6 +1965,9 @@ namespace GuideAntsApi.DataModel.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("CompactionBoundaryTurnIndex")
+                        .HasColumnType("int");
 
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()

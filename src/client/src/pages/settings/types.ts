@@ -63,6 +63,9 @@ export interface AddModelWizardState {
   catalogDisplayName: string;
   catalogDescription: string;
   catalogDisplayOrder: string;
+  /** Empty string means unknown; parsed to a positive integer or null at build time. */
+  catalogContextWindowTokens: string;
+  catalogMaxOutputTokens: string;
   catalogIsActive: boolean;
   samplingParametersJson: string;
   reasoningChoicesJson: string;
@@ -89,6 +92,9 @@ export interface CatalogEditState {
   displayName: string;
   description: string;
   displayOrder: string;
+  /** Empty string means unknown; parsed to a positive integer or null at build time. */
+  contextWindowTokens: string;
+  maxOutputTokens: string;
   isActive: boolean;
   samplingParametersJson: string;
   reasoningChoicesJson: string;

@@ -83,6 +83,8 @@ export function createEmptyAddModelWizardState(preselectedProvider?: string | nu
     catalogDisplayName: '',
     catalogDescription: '',
     catalogDisplayOrder: '',
+    catalogContextWindowTokens: '',
+    catalogMaxOutputTokens: '',
     catalogIsActive: true,
     samplingParametersJson: '{}',
     reasoningChoicesJson: '',
@@ -210,6 +212,19 @@ function normalizeOptionalString(value: string | undefined | null): string | und
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+/** Mirrors the server's C# int? (Int32.MaxValue) for the context window fields. */
+const MAX_TOKEN_COUNT = 2147483647;
+
+/** Empty, non-integer, non-positive or over-range input means "unknown" (null); never sends a bogus number. */
+export function normalizeTokenCount(value: string): number | null {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    return null;
+  }
+  const parsed = Number(trimmed);
+  return parsed > 0 && parsed <= MAX_TOKEN_COUNT ? parsed : null;
+}
+
 function normalizeDisplayOrder(value: string): number | undefined {
   const trimmed = value.trim();
   if (trimmed.length === 0) {
@@ -294,6 +309,8 @@ export function createCatalogEditStateFromModel(model: SettingsModelDto): Catalo
     displayName: model.displayName,
     description: model.description ?? '',
     displayOrder: model.displayOrder?.toString() ?? '',
+    contextWindowTokens: model.contextWindowTokens?.toString() ?? '',
+    maxOutputTokens: model.maxOutputTokens?.toString() ?? '',
     isActive: model.isActive,
     samplingParametersJson: model.samplingParametersJson ?? '{}',
     reasoningChoicesJson: model.reasoningChoicesJson ?? '',
@@ -364,6 +381,8 @@ export function buildAddModelRequest(state: AddModelWizardState): AddModelReques
       displayName,
       description: normalizeOptionalString(state.catalogDescription),
       displayOrder: normalizeDisplayOrder(state.catalogDisplayOrder),
+      contextWindowTokens: normalizeTokenCount(state.catalogContextWindowTokens),
+      maxOutputTokens: normalizeTokenCount(state.catalogMaxOutputTokens),
       isActive: state.catalogIsActive,
     },
     providerConfig,
@@ -418,6 +437,9 @@ export function buildCatalogEditRequest(
       normalizeBehaviorJson(state.requestFieldsWhenToolsPresentJson, 'Extra request fields JSON') ?? '{}',
     isActive: state.isActive,
     displayOrder: normalizeDisplayOrder(state.displayOrder),
+    // Always sent: the server PUT is full-replacement, so omitting these would wipe stored values.
+    contextWindowTokens: normalizeTokenCount(state.contextWindowTokens),
+    maxOutputTokens: normalizeTokenCount(state.maxOutputTokens),
   };
 }
 
