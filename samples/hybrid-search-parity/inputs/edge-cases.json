@@ -1,0 +1,22 @@
+[
+  { "id": "E01", "content": "Embeddings default to text-embedding-3-small with 1536 dimensions, so no padding is applied." },
+  { "id": "E02", "content": "The local runtime wraps llama.cpp and stable-diffusion.cpp behind an nginx gateway." },
+  { "id": "E03", "content": "Don't restart the container while a model download is running; it can't resume a partial file." },
+  { "id": "E04", "content": "The O'Reilly Media book on search engines explains inverted indexes well." },
+  { "id": "E05", "content": "The smoke test should say \"hello world\" twice before it exits with code zero." },
+  { "id": "E06", "content": "Order a café crème before the naïve résumé workshop starts." },
+  { "id": "E07", "content": "Order a cafe creme before the naive resume workshop starts." },
+  { "id": "E08", "content": "Source and release notes: https://github.com/ggml-org/llama.cpp/releases" },
+  { "id": "E09", "content": "Upgrade from v0.9.18 to v0.10 before running the storage migration." },
+  { "id": "E10", "content": "Each skill ships a SKILL.md file and an optional scripts/ folder." },
+  { "id": "E11", "content": "It is the end of the line for the old provider once the router is enabled." },
+  { "id": "E12", "content": "published guide published guide published guide published guide published guide" },
+  { "id": "E13", "content": "Notes on the published, guide-adjacent pages: punctuation sits between the words." },
+  { "id": "E14", "content": "PUBLISHED GUIDE settings are shown in upper case on the admin page." },
+  { "id": "E15", "content": "Set MSSQL_SA_PASSWORD and ACCEPT_EULA before starting the database container." },
+  { "id": "E16", "content": "DocumentChunk.Embedding stores vector(1536) values for every chunk." },
+  { "id": "E17", "content": "Chunks are 2048 bytes with 50% overlap, which is about 1.5x the raw text size." },
+  { "id": "E18", "content": "Contact admin@guideants.local to request access to the shared notebook." },
+  { "id": "E19", "content": "The server is written in C# and the build scripts in F# on .NET 8." },
+  { "id": "E20", "content": "日本語のテキスト検索はトークン化の方法によって結果が変わります。" }
+]
