@@ -11,6 +11,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{35DB2E4B
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Parity.Tests", "tests\Parity.Tests\Parity.Tests.csproj", "{3590C1D6-857B-4324-9449-8C7CB026D0EC}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Parity.SqlServer", "src\Parity.SqlServer\Parity.SqlServer.csproj", "{E97EE8E7-94A9-4F2D-9FE5-A19D6C153B38}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -28,9 +30,14 @@ Global
 		{3590C1D6-857B-4324-9449-8C7CB026D0EC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{3590C1D6-857B-4324-9449-8C7CB026D0EC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{3590C1D6-857B-4324-9449-8C7CB026D0EC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E97EE8E7-94A9-4F2D-9FE5-A19D6C153B38}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E97EE8E7-94A9-4F2D-9FE5-A19D6C153B38}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E97EE8E7-94A9-4F2D-9FE5-A19D6C153B38}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E97EE8E7-94A9-4F2D-9FE5-A19D6C153B38}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{CBBA0375-642D-4060-9A21-DB8A4BCEF103} = {8AB34363-7291-4FB0-8DA2-9F0F758D7001}
 		{3590C1D6-857B-4324-9449-8C7CB026D0EC} = {35DB2E4B-6908-4FC5-A176-F3D48C255A53}
+		{E97EE8E7-94A9-4F2D-9FE5-A19D6C153B38} = {8AB34363-7291-4FB0-8DA2-9F0F758D7001}
 	EndGlobalSection
 EndGlobal
