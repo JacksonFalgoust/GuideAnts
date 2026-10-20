@@ -12,6 +12,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Parity.Core/Parity.Core.csproj" />
     <ProjectReference Include="../../src/Parity.SqlServer/Parity.SqlServer.csproj" />
+    <ProjectReference Include="../../src/Parity.Cli/Parity.Cli.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
