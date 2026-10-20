@@ -114,6 +114,14 @@ samples/hybrid-search-parity/
 
 `SearchHit` has the same fields as production's `HybridSearchResult`.
 
+Added during planning:
+- `ISearchStore.PingServerAsync` (connect to the server, not the database, so "not running" can be told apart from "not seeded");
+- a `createdUtc` argument on `LoadAsync`;
+- `ISearchDiagnostics.GetIndexCoverageAsync`, which returns row and indexed-row counts for the sanity checks;
+- a `Normalized` field on `Token`.
+
+`search` treats text as a saved query only when it equals a saved query's text exactly after trimming; the comparison is case-sensitive. Tests use xUnit with its built-in asserts.
+
 The query methods listed above (`HybridSearchAsync`, `VectorSearchAsync`, `TextMatchAsync`, `ScoreChunksAsync`, `TokenizeAsync`) actually return `EngineResult<T>`. That's either the value shown or an `EngineError` (engine error number or SQLSTATE, plus the message). So when a database rejects a query, the caller gets the error, never an empty list that looks like "no results" (section 6.5). Schema, load and connection failures are thrown as exceptions and stop the command (section 11).
 
 ### 4.2 Configuration and composition
@@ -192,7 +200,8 @@ The query methods listed above (`HybridSearchAsync`, `VectorSearchAsync`, `TextM
 | `data/chunks.jsonl` | One JSON object per chunk: id, indexName, projectId, notebookId, documentId, contentFileId, sourcePath, chunkIndex, kind, content. About 2.5 MB |
 | `data/embeddings.f32` | Raw little-endian float32, `N × 1536`, in `chunks.jsonl` order. About 7.2 MB |
 | `data/query-embeddings.f32` | The same format, in `queries.json` order |
-| `data/manifest.json` | Corpus commit, generation time, model, dimensions, counts, SHA-256 of every data file, and the SHA-256 of each copied production source file |
+| `data/ground-truth.json` | The ground-truth match set for each exact-phrase and edge-case query (see below) |
+| `data/manifest.json` | Corpus commit, generation time, model, dimensions, counts, SHA-256 of every data and input file, and the SHA-256 of each copied production source file |
 
 `seed` checks the manifest hashes before loading and refuses to load a set of files that's mismatched or incomplete.
 
@@ -341,7 +350,10 @@ Each chunk that is in one top 5 and not the other, or that moves outside its tie
 | `matched-one-side` | Only one engine matched it. This links to the rule 2 entry |
 | `top-n-cut` | Both matched it, but only one kept it among the top `maxResults × 2` candidates (chosen across all projects) |
 | `top-n-boundary-tie` | Like `top-n-cut`, but on the side that cut it, its raw rank equals the N-th candidate's rank, so the choice was arbitrary |
-| **unexplained** | Anything else, such as differing scores with equal text scores. This fails the verdict |
+| `displaced` | The chunk's own scores are equal on both engines, but it moved because other chunks' scores changed. It counts as explained only when the same pair has at least one difference in one of the categories above; otherwise it's unexplained |
+| **unexplained** | Anything else, such as differing vector scores, or a displacement with no cause in the pair. This fails the verdict |
+
+A chunk in one top 5 whose score on the other side ties with that side's 5th hit is not a difference, since the cut-off between tied chunks is arbitrary on both engines.
 
 ### 7.4 `known-differences.json`
 
@@ -362,7 +374,7 @@ There's one entry per query and scope, for full-text differences and for errors:
 }
 ```
 
-- `kind` is `text-match` or `error`.
+- `kind` is `text-match` or `error`. An `error` entry has no chunk lists. Its snapshot is `errorSide` (`baseline` or `candidate`) plus `errorCode` (for example `SQL7619` or `PG42601`).
 - `category` is one of `tokenization`, `stop-words`, `punctuation`, `accents`, `error-handling` or `other`.
 - `decision` is `acceptable` or `blocker`.
 - An entry applies only if `baselineOnly` and `candidateOnly` match the observed difference **exactly**. If the difference changes, the entry no longer matches and the difference counts as unreviewed.
@@ -446,7 +458,7 @@ Written test-first. They cover:
 | Service | Image | Host port | Notes |
 |---|---|---|---|
 | `sqlserver` | `ghcr.io/elumenotion/mssql2025-express-fts:main` | 14333 | Developer edition, as in the GuideAnts compose files. amd64 only, so it runs emulated on Apple Silicon |
-| `postgres` | `pgvector/pgvector:0.8.7-pg18` | 54329 | Creates the `parity` and `parity_english` databases |
+| `postgres` | `pgvector/pgvector:0.8.7-pg18` | 54329 | The `parity` and `parity_english` databases are dropped and recreated by `seed`, not by the container |
 
 The ports avoid clashing with a running GuideAnts stack (1433, 5106–5108).
 
