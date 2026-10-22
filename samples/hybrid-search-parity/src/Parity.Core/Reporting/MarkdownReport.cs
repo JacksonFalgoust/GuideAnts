@@ -69,7 +69,7 @@ public static class MarkdownReport
         sb.AppendLine($"{report.Pairs.Count - failures.Count}/{report.Pairs.Count} pairs pass.");
         foreach (var p in failures)
         {
-            sb.AppendLine($"- `{p.Query.Id}` · {p.Scope}: {p.Vector.Failure}");
+            sb.AppendLine($"- `{p.Query.Id}` · {p.Scope}: {Md(p.Vector.Failure)}");
         }
 
         sb.AppendLine();
@@ -77,23 +77,30 @@ public static class MarkdownReport
 
     private static void RuleTwo(StringBuilder sb, ComparisonReport report)
     {
-        var differing = report.Pairs.Where(p => p.Text is { IsEqual: false }).ToList();
+        var differing = report.Pairs.Where(p => p.Text is { IsEqual: false } || (p.TextReview?.IsOpen ?? false)).ToList();
         sb.AppendLine("## Rule 2: full-text match parity").AppendLine();
         sb.AppendLine($"{differing.Count} pairs differ; {differing.Count(p => p.TextReview?.IsOpen ?? true)} are open. Stop words are shown ~~struck through~~.");
         sb.AppendLine();
         foreach (var p in differing)
         {
             var review = p.TextReview;
-            sb.AppendLine($"### `{p.Query.Id}` · {p.Scope}: \"{p.Query.Text}\"").AppendLine();
-            sb.AppendLine($"Status: **{ComparisonReport.Status(review)}**{(review?.Entry is { } e ? $" ({e.Category}: {e.Reason})" : "")}").AppendLine();
-            sb.AppendLine($"- Baseline only: {Labels(report, p.Text!.BaselineOnly)}");
-            sb.AppendLine($"- Candidate only: {Labels(report, p.Text.CandidateOnly)}");
+            sb.AppendLine($"### `{p.Query.Id}` · {p.Scope}: \"{Md(p.Query.Text)}\"").AppendLine();
+            sb.AppendLine($"Status: **{ComparisonReport.Status(review)}**{(review?.Entry is { } e ? $" ({Md(e.Category)}: {Md(e.Reason)})" : "")}").AppendLine();
+            if (p.Text is null)
+            {
+                sb.AppendLine("- (no diff recorded)");
+            }
+            else
+            {
+                sb.AppendLine($"- Baseline only: {Labels(report, p.Text.BaselineOnly)}");
+                sb.AppendLine($"- Candidate only: {Labels(report, p.Text.CandidateOnly)}");
+            }
             if (p.Evidence is { } evidence)
             {
                 sb.AppendLine($"- Query tokens: baseline {Tokens(evidence.BaselineQueryTokens)}; candidate {Tokens(evidence.CandidateQueryTokens)}");
                 foreach (var s in evidence.Snippets)
                 {
-                    sb.AppendLine($"- {s.Side} `{report.Label(s.ChunkId)}`: \"{s.Snippet}\"");
+                    sb.AppendLine($"- {s.Side} `{report.Label(s.ChunkId)}`: \"{Md(s.Snippet)}\"");
                     sb.AppendLine($"  - baseline tokens {Tokens(s.BaselineTokens)}; candidate tokens {Tokens(s.CandidateTokens)}");
                 }
             }
@@ -126,7 +133,7 @@ public static class MarkdownReport
         {
             foreach (var d in p.Differences)
             {
-                sb.AppendLine($"- `{p.Query.Id}` · {p.Scope}: `{report.Label(d.ChunkId)}` rank {d.BaselineRank?.ToString(Inv) ?? "–"} → {d.CandidateRank?.ToString(Inv) ?? "–"}: **{ComparisonReport.Kebab(d.Category)}** ({d.Detail})");
+                sb.AppendLine($"- `{p.Query.Id}` · {p.Scope}: `{report.Label(d.ChunkId)}` rank {d.BaselineRank?.ToString(Inv) ?? "–"} → {d.CandidateRank?.ToString(Inv) ?? "–"}: **{ComparisonReport.Kebab(d.Category)}** ({Md(d.Detail)})");
             }
         }
 
@@ -149,7 +156,7 @@ public static class MarkdownReport
 
     private static void Errors(StringBuilder sb, ComparisonReport report)
     {
-        var errors = report.Pairs.Where(p => p.Error is not null).ToList();
+        var errors = report.Pairs.Where(p => p.Error is not null || (p.ErrorReview?.IsOpen ?? false)).ToList();
         if (errors.Count == 0)
         {
             return;
@@ -159,7 +166,12 @@ public static class MarkdownReport
         sb.AppendLine("| Query | Scope | Side | Baseline | Candidate | Review |").AppendLine("|---|---|---|---|---|---|");
         foreach (var p in errors)
         {
-            var e = p.Error!;
+            if (p.Error is not { } e)
+            {
+                sb.AppendLine($"| `{p.Query.Id}` | {p.Scope} | (no error recorded) | | | {ComparisonReport.Status(p.ErrorReview)} |");
+                continue;
+            }
+
             sb.AppendLine($"| `{p.Query.Id}` | {p.Scope} | {e.Side} | {Cell(Describe(e.Baseline))} | {Cell(Describe(e.Candidate))} | {(e.IsOneSided ? ComparisonReport.Status(p.ErrorReview) : "n/a (both failed)")} |");
         }
 
@@ -177,7 +189,7 @@ public static class MarkdownReport
         sb.AppendLine("These entries no longer match any observed difference. They don't affect the verdict; remove them when convenient.");
         foreach (var e in report.StaleEntries)
         {
-            sb.AppendLine($"- `{e.QueryId}` · {e.Scope} ({e.Kind}, {e.Decision}): {e.Reason}");
+            sb.AppendLine($"- {Code(e.QueryId)} · {Md(e.Scope)} ({Md(e.Kind)}, {Md(e.Decision)}): {Md(e.Reason)}");
         }
 
         sb.AppendLine();
@@ -189,7 +201,29 @@ public static class MarkdownReport
         ids.Count == 0 ? "none" : string.Join(", ", ids.Select(id => $"`{report.Label(id)}`"));
 
     private static string Tokens(IReadOnlyList<Token> tokens) =>
-        tokens.Count == 0 ? "(none)" : "`" + string.Join(" | ", tokens.Select(t => t.IsStopWord ? $"~~{t.Text}~~" : t.Normalized ?? t.Text)) + "`";
+        tokens.Count == 0 ? "(none)" : string.Join(" | ", tokens.Select(t => t.IsStopWord ? $"~~{Code(t.Text)}~~" : Code(t.Normalized ?? t.Text)));
 
-    private static string Cell(string value) => value.Replace("|", "\\|").ReplaceLineEndings(" ");
+    private static string Cell(string value) => Md(value);
+
+    /// <summary>Sanitises untrusted free text: one line, bounded length, markdown/HTML characters escaped.</summary>
+    internal static string Md(string? value)
+    {
+        var text = System.Text.RegularExpressions.Regex.Replace(value ?? "", @"\s+", " ").Trim();
+        if (text.Length > 200)
+        {
+            text = text[..200].TrimEnd() + "…";
+        }
+
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"[\\`*_~|<>#\[\]!]", m => "\\" + m.Value);
+        return System.Text.RegularExpressions.Regex.Replace(text, @"^(\d+)([.)])|^([-+])", m => m.Value.Replace(".", "\\.").Replace(")", "\\)").Replace("-", "\\-").Replace("+", "\\+"));
+    }
+
+    /// <summary>A code span whose fence is longer than any backtick run inside, padded so edge backticks are safe.</summary>
+    internal static string Code(string? value)
+    {
+        var text = System.Text.RegularExpressions.Regex.Replace(value ?? "", @"\s+", " ");
+        var longest = System.Text.RegularExpressions.Regex.Matches(text, "`+").Select(m => m.Length).DefaultIfEmpty(0).Max();
+        var fence = new string('`', longest + 1);
+        return longest == 0 ? $"`{text}`" : $"{fence} {text} {fence}";
+    }
 }

@@ -82,7 +82,7 @@ public class ReportTests
         Assert.Contains("**UNREVIEWED**", markdown);
         Assert.Contains("inputs/edge-cases.json#E01", markdown);
         Assert.Contains("text-embedding-3-small", markdown);
-        Assert.Contains("~~the~~", markdown);
+        Assert.Contains("~~`the`~~", markdown);
         Assert.Contains("matched-one-side", markdown);
     }
 
@@ -134,5 +134,90 @@ public class ReportTests
         var markdown = MarkdownReport.Render(Report(false, pair));
         Assert.Contains("### `Q36` · P1", markdown);
         Assert.Contains("## Errors", markdown);
+    }
+
+    private static ComparisonReport WithStale(ComparisonReport r, params KnownDifference[] stale) => r with { StaleEntries = stale };
+
+    [Fact]
+    public void TokensRenderPerTokenCodeSpansWithStrikeOutsideAndBackticksContained()
+    {
+        var pair = WithTextDiff() with
+        {
+            Evidence = new TextEvidence(
+                [new Token("the", "the", "Noise Word", true), new Token("end", "end", "word", false), new Token("a`b", "a`b", "word", false)],
+                [],
+                [])
+        };
+        var markdown = MarkdownReport.Render(Report(false, pair));
+        Assert.Contains("baseline ~~`the`~~ | `end` | `` a`b ``;", markdown);
+        Assert.DoesNotContain("~~the~~", markdown);
+    }
+
+    [Fact]
+    public void HostileFreeTextStaysOnOneLineAndIsEscaped()
+    {
+        const string hostile = "line1\n# heading `tick` | pipe ~~strike~~ <script>alert(1)</script>\n- item";
+        var pair = WithTextDiff() with
+        {
+            Query = new QueryRef("Q19", "edge", hostile),
+            Evidence = new TextEvidence([], [], [new SnippetEvidence(Id("b"), "candidate-only", hostile, [], [])]),
+            Differences = [new RankDifference(Id("b"), null, 4, DifferenceCategory.Unexplained, hostile)],
+            Vector = new VectorParityResult(false, hostile),
+        };
+        var error = WithError() with { Error = new ErrorOutcome(null, new EngineError("X", hostile)) };
+        var markdown = MarkdownReport.Render(Report(false, pair, error));
+        Assert.DoesNotContain("<script>", markdown);
+        Assert.DoesNotContain("# heading", markdown.Replace("\\# heading", ""));
+        foreach (var line in markdown.Split('\n'))
+        {
+            Assert.DoesNotContain("line1", line.Replace("line1 \\# heading", ""));
+        }
+
+        var heading = markdown.Split('\n').Single(l => l.StartsWith("### `Q19`"));
+        Assert.Contains("\\<script\\>", heading);
+        var snippet = markdown.Split('\n').Single(l => l.StartsWith("- candidate-only "));
+        Assert.Contains("\\~\\~strike\\~\\~", snippet);
+        var rows = markdown.Split('\n').Where(l => l.StartsWith("| `Q36`")).ToList();
+        Assert.Single(rows);
+        Assert.Equal(7, System.Text.RegularExpressions.Regex.Matches(rows[0], @"(?<!\\)\|").Count);
+    }
+
+    [Fact]
+    public void VectorFailureAndUnexplainedDifferenceAppearInMarkdownAndConsole()
+    {
+        var pair = Clean("Q07") with
+        {
+            Vector = new VectorParityResult(false, "score drift 0.5"),
+            Differences = [new RankDifference(Id("a"), 1, 2, DifferenceCategory.Unexplained, "mystery")],
+        };
+        var report = Report(false, pair);
+        var markdown = MarkdownReport.Render(report);
+        var console = ConsoleSummary.Render(report);
+        Assert.Contains("score drift 0.5", markdown);
+        Assert.Contains("unexplained", markdown);
+        Assert.Contains("mystery", markdown);
+        Assert.Contains("Q07 · P1  vector  FAIL  score drift 0.5", console);
+        Assert.Contains("Q07 · P1  hybrid  unexplained", console);
+    }
+
+    [Fact]
+    public void StaleEntriesGetTheirOwnSection()
+    {
+        var stale = new KnownDifference("Q99", "P3", "text-match", null, null, null, null, "other", "old | reason", "acceptable", null, null);
+        var markdown = MarkdownReport.Render(WithStale(Report(false, Clean()), stale));
+        Assert.Contains("## Stale known-differences entries", markdown);
+        Assert.Contains("`Q99` · P3 (text-match, acceptable): old \\| reason", markdown);
+    }
+
+    [Fact]
+    public void APairOpenOnlyThroughAReviewIsStillListed()
+    {
+        var pair = Clean("Q55") with { Text = null, TextReview = Unreviewed, ErrorReview = Unreviewed };
+        var report = Report(false, pair);
+        Assert.False(report.Verdict.Conditions[1].Pass);
+        var markdown = MarkdownReport.Render(report);
+        Assert.Contains("### `Q55` · P1", markdown);
+        Assert.Contains("(no diff recorded)", markdown);
+        Assert.Contains("| `Q55` | P1 | (no error recorded)", markdown);
     }
 }
