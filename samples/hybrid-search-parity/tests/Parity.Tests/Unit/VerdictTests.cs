@@ -157,4 +157,42 @@ public sealed class VerdictTests : IDisposable
         Assert.Single(KnownDifferences.FindStale(entries, [Pair(query: "Q19")]));
         Assert.Empty(KnownDifferences.FindStale(entries, [Pair(query: "Q19", text: new TextDiff([], [Id("a")])) with { Scope = "P2" }]));
     }
+
+    [Fact]
+    public void MatchedOneSideWinsOverTopNCut()
+    {
+        Assert.Equal(
+            DifferenceCategory.MatchedOneSide,
+            DifferenceClassifier.Classify(Score(0.5, 0.4, true, true, 0.4, 0.3), Score(0.5, 0, false, false, null, 0.3), Tol, Tie));
+    }
+
+    [Fact]
+    public void UnreviewedDifferencesFailClosed()
+    {
+        var text = Verdict.Evaluate([Pair(text: new TextDiff([Id("a")], []), textReview: null)], new ThresholdSettings());
+        Assert.False(text.Switchable);
+        Assert.False(text.Conditions[1].Pass);
+
+        var error = new ErrorOutcome(new EngineError("SQL7619", "x"), null);
+        var err = Verdict.Evaluate([Pair(error: error, errorReview: null)], new ThresholdSettings());
+        Assert.False(err.Switchable);
+        Assert.False(err.Conditions[1].Pass);
+    }
+
+    [Fact]
+    public void NothingToJudgeIsNeverSwitchable()
+    {
+        var zero = new ThresholdSettings { MinMeanTop5Overlap = 0, MinSameTopOneRate = 0 };
+        var empty = Verdict.Evaluate([], zero);
+        Assert.False(empty.Switchable);
+        Assert.False(empty.Conditions[0].Pass);
+        Assert.Equal("0/0 pairs", empty.Conditions[0].Value);
+
+        var error = new ErrorOutcome(new EngineError("SQL7619", "x"), null);
+        var errored = Verdict.Evaluate([Pair(error: error, errorReview: new ReviewStatus(ReviewOutcome.Acceptable, null))], zero);
+        Assert.False(errored.Switchable);
+        Assert.False(errored.Conditions[2].Pass);
+        Assert.False(errored.Conditions[3].Pass);
+        Assert.Equal("no counted pairs", errored.Conditions[2].Value);
+    }
 }
