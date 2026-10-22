@@ -60,6 +60,7 @@ public sealed class GenerateDataCommandTests : IDisposable
     {
         var error = await Assert.ThrowsAsync<ParityConfigurationException>(() => Command(null).RunAsync(CliArgs.Parse(["generate-data"]), CancellationToken.None));
         Assert.Contains("OPENAI_API_KEY", error.Message);
+        Assert.Contains("OPENROUTER_API_KEY", error.Message);
     }
 
     [Fact]

@@ -37,7 +37,7 @@ public sealed class OpenAiEmbeddingClient : IEmbeddingClient
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             throw new ParityConfigurationException(
-                "An OpenAI API key is required. Set OPENAI_API_KEY, or run `dotnet user-secrets set OpenAI:ApiKey <key>` in src/Parity.Cli.");
+                "An embeddings API key is required. Set OPENAI_API_KEY or OPENROUTER_API_KEY, or run `dotnet user-secrets set OpenAI:ApiKey <key>` in src/Parity.Cli.");
         }
 
         _http = http;

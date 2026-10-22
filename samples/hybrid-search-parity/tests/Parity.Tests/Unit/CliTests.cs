@@ -58,6 +58,60 @@ public sealed class CliTests : IDisposable
         Assert.Equal("sk-env", settings.OpenAI.ApiKey);
     }
 
+    private const string OpenAiEndpoint = "https://api.openai.com/v1";
+    private const string OpenRouterEndpoint = "https://openrouter.ai/api/v1";
+
+    private static Func<string, string?> Env(string? openAi, string? openRouter) =>
+        name => name switch { "OPENAI_API_KEY" => openAi, "OPENROUTER_API_KEY" => openRouter, _ => null };
+
+    [Fact]
+    public void OpenRouterKeyAloneSwitchesKeyEndpointAndModel()
+    {
+        var settings = AppConfig.Load(_root, environment: Env(null, "or-env"));
+        Assert.Equal("or-env", settings.OpenAI.ApiKey);
+        Assert.Equal(OpenRouterEndpoint, settings.OpenAI.Endpoint);
+        Assert.Equal("openai/text-embedding-3-small", settings.OpenAI.Model);
+    }
+
+    [Fact]
+    public void OpenAiKeyAloneLeavesEndpointAndModelAtDefaults()
+    {
+        var settings = AppConfig.Load(_root, environment: Env("sk-env", null));
+        Assert.Equal("sk-env", settings.OpenAI.ApiKey);
+        Assert.Equal(OpenAiEndpoint, settings.OpenAI.Endpoint);
+        Assert.Equal("text-embedding-3-small", settings.OpenAI.Model);
+    }
+
+    [Fact]
+    public void OpenAiKeyWinsWhenBothAreSet()
+    {
+        var settings = AppConfig.Load(_root, environment: Env("sk-env", "or-env"));
+        Assert.Equal("sk-env", settings.OpenAI.ApiKey);
+        Assert.Equal(OpenAiEndpoint, settings.OpenAI.Endpoint);
+        Assert.Equal("text-embedding-3-small", settings.OpenAI.Model);
+    }
+
+    [Fact]
+    public void ExplicitEndpointAndModelSurviveAnOpenRouterKey()
+    {
+        var overrides = new Dictionary<string, string?>
+        {
+            ["OpenAI:Endpoint"] = "https://proxy.example/v1",
+            ["OpenAI:Model"] = "custom-model",
+        };
+        var settings = AppConfig.Load(_root, overrides, Env(null, "or-env"));
+        Assert.Equal("or-env", settings.OpenAI.ApiKey);
+        Assert.Equal("https://proxy.example/v1", settings.OpenAI.Endpoint);
+        Assert.Equal("custom-model", settings.OpenAI.Model);
+    }
+
+    [Fact]
+    public void EmptyEnvironmentLeavesTheKeyNull()
+    {
+        var settings = AppConfig.Load(_root, environment: Env(null, null));
+        Assert.Null(settings.OpenAI.ApiKey);
+    }
+
     [Fact]
     public async Task HelpExitsZeroAndUnknownCommandExitsTwo()
     {

@@ -13,7 +13,7 @@ public sealed class GenerateDataCommand(TextWriter output, string sampleRoot, Fu
         if (embedder is null)
         {
             throw new ParityConfigurationException(
-                "generate-data needs an OpenAI API key. Set OPENAI_API_KEY, or run `dotnet user-secrets set OpenAI:ApiKey <key>` in src/Parity.Cli.");
+                "generate-data needs an embeddings API key. Set OPENAI_API_KEY or OPENROUTER_API_KEY, or run `dotnet user-secrets set OpenAI:ApiKey <key>` in src/Parity.Cli.");
         }
 
         var docs = docsSourceFactory(args.Get("--corpus-commit") ?? ProductionSources.Commit);

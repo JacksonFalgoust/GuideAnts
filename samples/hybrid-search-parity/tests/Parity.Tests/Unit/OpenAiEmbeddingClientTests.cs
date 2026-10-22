@@ -97,5 +97,6 @@ public class OpenAiEmbeddingClientTests
     {
         var error = Assert.Throws<ParityConfigurationException>(() => new OpenAiEmbeddingClient(new HttpClient(), " "));
         Assert.Contains("OPENAI_API_KEY", error.Message);
+        Assert.Contains("OPENROUTER_API_KEY", error.Message);
     }
 }

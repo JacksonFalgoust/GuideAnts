@@ -17,7 +17,7 @@ public static class QueryVectors
         if (embedder is null)
         {
             throw new ParityConfigurationException(
-                $"\"{text.Trim()}\" isn't a saved query, so it needs a live OpenAI embedding. Set OPENAI_API_KEY, or use a query from inputs/queries.json.");
+                $"\"{text.Trim()}\" isn't a saved query, so it needs a live embedding. Set OPENAI_API_KEY or OPENROUTER_API_KEY, or use a query from inputs/queries.json.");
         }
 
         var vectors = await embedder.EmbedAsync([text.Trim()], ct);

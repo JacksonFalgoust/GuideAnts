@@ -20,7 +20,7 @@ public sealed class CliApp(
     public const string HelpText = """
         Hybrid search parity demo (SQL Server vs PostgreSQL)
 
-          generate-data [--corpus-commit <sha>]      Build data/ from docs/*.md at the commit (needs OPENAI_API_KEY)
+          generate-data [--corpus-commit <sha>]      Build data/ from docs/*.md at the commit (needs OPENAI_API_KEY or OPENROUTER_API_KEY)
           seed (--profile <name> | --all)            Recreate the schema and load data/
           search "<text>" [--profile <name>] [--scope P1|P2|P3|P1/N1] [--quirk-fixed]
           compare [--out RESULTS.md] [--query "<text>"]
