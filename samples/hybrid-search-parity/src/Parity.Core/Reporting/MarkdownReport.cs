@@ -1,0 +1,195 @@
+using System.Globalization;
+using System.Text;
+using Parity.Core.Comparison;
+using Parity.Core.Model;
+
+namespace Parity.Core.Reporting;
+
+/// <summary>Spec section 7.5: the RESULTS.md layout.</summary>
+public static class MarkdownReport
+{
+    private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+
+    public static string Render(ComparisonReport report)
+    {
+        var sb = new StringBuilder();
+        var c = report.Context;
+
+        sb.AppendLine("# Hybrid search parity results").AppendLine();
+        sb.AppendLine(string.Create(Inv,
+            $"**Verdict: {(report.Verdict.Switchable ? "SWITCHABLE" : "NOT SWITCHABLE")}**. `{c.BaselineProfile}` (baseline) vs `{c.CandidateProfile}` (candidate), {report.Pairs.Count} query/scope pairs, run {c.RunAtUtc:yyyy-MM-dd HH:mm} UTC."));
+        sb.AppendLine();
+        if (c.AppSettingsModified)
+        {
+            sb.AppendLine("> **Warning:** `appsettings.json` has uncommitted changes, so the thresholds below may differ from the committed ones.").AppendLine();
+        }
+
+        sb.AppendLine("| Condition | Result | Value |").AppendLine("|---|---|---|");
+        foreach (var condition in report.Verdict.Conditions)
+        {
+            sb.AppendLine($"| {Cell(condition.Name)} | {(condition.Pass ? "PASS" : "FAIL")} | {Cell(condition.Value)} |");
+        }
+
+        sb.AppendLine();
+        WriteEnvironment(sb, c);
+        RuleOne(sb, report);
+        RuleTwo(sb, report);
+        RuleThree(sb, report);
+        Informational(sb, report);
+        Errors(sb, report);
+        Stale(sb, report);
+        return sb.ToString();
+    }
+
+    private static void WriteEnvironment(StringBuilder sb, RunContext c)
+    {
+        var m = c.Manifest;
+        sb.AppendLine("## Environment").AppendLine();
+        sb.AppendLine($"- Sample commit: `{c.SampleCommit}`{(c.AppSettingsModified ? " (appsettings.json modified)" : "")}");
+        sb.AppendLine(string.Create(Inv, $"- Data: corpus `{m.CorpusCommit[..Math.Min(8, m.CorpusCommit.Length)]}`, model `{m.Model}`, {m.ChunkCount} chunks, {m.QueryCount} queries, generated {m.GeneratedUtc:yyyy-MM-dd}"));
+        sb.AppendLine(string.Create(Inv,
+            $"- Thresholds: mean top-5 overlap ≥ {c.Thresholds.MinMeanTop5Overlap}, same #1 ≥ {c.Thresholds.MinSameTopOneRate * 100:0}%; vector tolerance {c.VectorTolerance:0.#####E0}, tie tolerance {c.TieTolerance:0.#####E0}"));
+        foreach (var (role, info) in new[] { ("Baseline", c.BaselineInfo), ("Candidate", c.CandidateInfo) })
+        {
+            sb.AppendLine($"- {role} ({info.Provider}): {info.Version}");
+            foreach (var (key, value) in info.Details.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+            {
+                sb.AppendLine($"  - {key}: `{value}`");
+            }
+        }
+
+        sb.AppendLine($"- Images: SQL Server `{c.SqlServerImage}` → {c.SqlServerImageDigest}; Postgres `{c.PostgresImage}` → {c.PostgresImageDigest}");
+        sb.AppendLine();
+    }
+
+    private static void RuleOne(StringBuilder sb, ComparisonReport report)
+    {
+        var failures = report.Pairs.Where(p => !p.Vector.Pass).ToList();
+        sb.AppendLine("## Rule 1: vector parity").AppendLine();
+        sb.AppendLine($"{report.Pairs.Count - failures.Count}/{report.Pairs.Count} pairs pass.");
+        foreach (var p in failures)
+        {
+            sb.AppendLine($"- `{p.Query.Id}` · {p.Scope}: {p.Vector.Failure}");
+        }
+
+        sb.AppendLine();
+    }
+
+    private static void RuleTwo(StringBuilder sb, ComparisonReport report)
+    {
+        var differing = report.Pairs.Where(p => p.Text is { IsEqual: false }).ToList();
+        sb.AppendLine("## Rule 2: full-text match parity").AppendLine();
+        sb.AppendLine($"{differing.Count} pairs differ; {differing.Count(p => p.TextReview?.IsOpen ?? true)} are open. Stop words are shown ~~struck through~~.");
+        sb.AppendLine();
+        foreach (var p in differing)
+        {
+            var review = p.TextReview;
+            sb.AppendLine($"### `{p.Query.Id}` · {p.Scope}: \"{p.Query.Text}\"").AppendLine();
+            sb.AppendLine($"Status: **{ComparisonReport.Status(review)}**{(review?.Entry is { } e ? $" ({e.Category}: {e.Reason})" : "")}").AppendLine();
+            sb.AppendLine($"- Baseline only: {Labels(report, p.Text!.BaselineOnly)}");
+            sb.AppendLine($"- Candidate only: {Labels(report, p.Text.CandidateOnly)}");
+            if (p.Evidence is { } evidence)
+            {
+                sb.AppendLine($"- Query tokens: baseline {Tokens(evidence.BaselineQueryTokens)}; candidate {Tokens(evidence.CandidateQueryTokens)}");
+                foreach (var s in evidence.Snippets)
+                {
+                    sb.AppendLine($"- {s.Side} `{report.Label(s.ChunkId)}`: \"{s.Snippet}\"");
+                    sb.AppendLine($"  - baseline tokens {Tokens(s.BaselineTokens)}; candidate tokens {Tokens(s.CandidateTokens)}");
+                }
+            }
+
+            sb.AppendLine();
+        }
+    }
+
+    private static void RuleThree(StringBuilder sb, ComparisonReport report)
+    {
+        var counted = report.Pairs.Where(p => p.Hybrid is not null).ToList();
+        var differences = report.Pairs.SelectMany(p => p.Differences).ToList();
+        sb.AppendLine("## Rule 3: hybrid ranking").AppendLine();
+        if (counted.Count > 0)
+        {
+            sb.AppendLine(string.Create(Inv,
+                $"Mean top-5 overlap {counted.Average(p => p.Hybrid!.OverlapAt5):F3} over {counted.Count} pairs; same #1 in {counted.Count(p => p.Hybrid!.SameTopOne) * 100.0 / counted.Count:0.0}%."));
+        }
+
+        sb.AppendLine($"{differences.Count} differences: {string.Join(", ", differences.GroupBy(d => d.Category).OrderBy(g => g.Key).Select(g => $"{g.Count()} {ComparisonReport.Kebab(g.Key)}"))}.");
+        sb.AppendLine();
+        sb.AppendLine("| Query | Scope | Overlap@5 | Same #1 | Differences |").AppendLine("|---|---|---|---|---|");
+        foreach (var p in counted)
+        {
+            sb.AppendLine(string.Create(Inv, $"| `{p.Query.Id}` | {p.Scope} | {p.Hybrid!.OverlapAt5:F2} | {(p.Hybrid.SameTopOne ? "yes" : "no")} | {p.Differences.Count} |"));
+        }
+
+        sb.AppendLine();
+        foreach (var p in report.Pairs.Where(p => p.Differences.Count > 0))
+        {
+            foreach (var d in p.Differences)
+            {
+                sb.AppendLine($"- `{p.Query.Id}` · {p.Scope}: `{report.Label(d.ChunkId)}` rank {d.BaselineRank?.ToString(Inv) ?? "–"} → {d.CandidateRank?.ToString(Inv) ?? "–"}: **{ComparisonReport.Kebab(d.Category)}** ({d.Detail})");
+            }
+        }
+
+        sb.AppendLine();
+    }
+
+    private static void Informational(StringBuilder sb, ComparisonReport report)
+    {
+        sb.AppendLine("## Informational (not part of the verdict)").AppendLine();
+        sb.AppendLine("| Run | Pairs | Mean top-5 overlap | Same #1 | Extra matches | Lost matches |").AppendLine("|---|---|---|---|---|---|");
+        foreach (var s in report.Profiles.Prepend(report.QuirkFixed))
+        {
+            sb.AppendLine(s.Available
+                ? string.Create(Inv, $"| {Cell(s.Label)} | {s.PairsCounted} | {s.MeanOverlap:F3} | {s.SameTopOneRate * 100:0.0}% | {s.ExtraMatches} | {s.LostMatches} |")
+                : $"| {Cell(s.Label)} | not available: {Cell(s.UnavailableReason ?? "")} | | | | |");
+        }
+
+        sb.AppendLine();
+    }
+
+    private static void Errors(StringBuilder sb, ComparisonReport report)
+    {
+        var errors = report.Pairs.Where(p => p.Error is not null).ToList();
+        if (errors.Count == 0)
+        {
+            return;
+        }
+
+        sb.AppendLine("## Errors").AppendLine();
+        sb.AppendLine("| Query | Scope | Side | Baseline | Candidate | Review |").AppendLine("|---|---|---|---|---|---|");
+        foreach (var p in errors)
+        {
+            var e = p.Error!;
+            sb.AppendLine($"| `{p.Query.Id}` | {p.Scope} | {e.Side} | {Cell(Describe(e.Baseline))} | {Cell(Describe(e.Candidate))} | {(e.IsOneSided ? ComparisonReport.Status(p.ErrorReview) : "n/a (both failed)")} |");
+        }
+
+        sb.AppendLine();
+    }
+
+    private static void Stale(StringBuilder sb, ComparisonReport report)
+    {
+        if (report.StaleEntries.Count == 0)
+        {
+            return;
+        }
+
+        sb.AppendLine("## Stale known-differences entries").AppendLine();
+        sb.AppendLine("These entries no longer match any observed difference. They don't affect the verdict; remove them when convenient.");
+        foreach (var e in report.StaleEntries)
+        {
+            sb.AppendLine($"- `{e.QueryId}` · {e.Scope} ({e.Kind}, {e.Decision}): {e.Reason}");
+        }
+
+        sb.AppendLine();
+    }
+
+    private static string Describe(EngineError? error) => error is null ? "ok" : $"{error.Code}: {error.Message}";
+
+    private static string Labels(ComparisonReport report, IReadOnlyList<Guid> ids) =>
+        ids.Count == 0 ? "none" : string.Join(", ", ids.Select(id => $"`{report.Label(id)}`"));
+
+    private static string Tokens(IReadOnlyList<Token> tokens) =>
+        tokens.Count == 0 ? "(none)" : "`" + string.Join(" | ", tokens.Select(t => t.IsStopWord ? $"~~{t.Text}~~" : t.Normalized ?? t.Text)) + "`";
+
+    private static string Cell(string value) => value.Replace("|", "\\|").ReplaceLineEndings(" ");
+}
