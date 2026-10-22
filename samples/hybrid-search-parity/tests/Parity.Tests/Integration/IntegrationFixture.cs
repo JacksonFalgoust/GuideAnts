@@ -48,6 +48,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
         }
         catch
         {
+            await _postgres.DisposeAsync();
             await _sqlServer.DisposeAsync();
             throw;
         }

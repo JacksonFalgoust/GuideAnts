@@ -58,6 +58,7 @@ public sealed class PostgresDiagnosticsTests(IntegrationFixture fixture)
         var hits = (await store.HybridSearchAsync(query, CancellationToken.None)).Value!;
         var scores = (await diagnostics.ScoreChunksAsync(query, hits.Select(h => h.ChunkId).ToList(), CancellationToken.None)).Value!.ToDictionary(s => s.ChunkId);
 
+        Assert.NotEmpty(hits);
         Assert.All(hits, h =>
         {
             Assert.Equal(h.VectorScore, scores[h.ChunkId].VectorScore, 9);
