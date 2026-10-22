@@ -7,12 +7,14 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="Testcontainers.MsSql" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Parity.Core/Parity.Core.csproj" />
     <ProjectReference Include="../../src/Parity.SqlServer/Parity.SqlServer.csproj" />
+    <ProjectReference Include="../../src/Parity.Postgres/Parity.Postgres.csproj" />
     <ProjectReference Include="../../src/Parity.Cli/Parity.Cli.csproj" />
   </ItemGroup>
   <ItemGroup>

@@ -1,10 +1,13 @@
 using Microsoft.Data.SqlClient;
+using Npgsql;
 using Parity.Core.Contracts;
 using Parity.Core.Model;
 using Parity.Core.Settings;
+using Parity.Postgres;
 using Parity.SqlServer;
 using Parity.Tests.Support;
 using Testcontainers.MsSql;
+using Testcontainers.PostgreSql;
 
 namespace Parity.Tests.Integration;
 
@@ -15,7 +18,7 @@ public sealed class DatabaseCollection : ICollectionFixture<IntegrationFixture>
 }
 
 /// <summary>
-/// Starts the containers once per test run. Databases are seeded lazily, once per key. The SQL
+/// Starts both containers once per test run. Databases are seeded lazily, once per key. The SQL
 /// Server image is amd64-only, so on Apple Silicon it runs emulated and takes a few minutes to start.
 /// </summary>
 public sealed class IntegrationFixture : IAsyncLifetime
@@ -27,12 +30,21 @@ public sealed class IntegrationFixture : IAsyncLifetime
         .WithPassword("Parity_Passw0rd!")
         .Build();
 
+    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
+        .WithImage(new ImageSettings().Postgres)
+        .WithPassword("parity")
+        .Build();
+
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<string, string> _seeded = new();
 
-    public Task InitializeAsync() => _sqlServer.StartAsync();
+    public Task InitializeAsync() => Task.WhenAll(_sqlServer.StartAsync(), _postgres.StartAsync());
 
-    public async Task DisposeAsync() => await _sqlServer.DisposeAsync();
+    public async Task DisposeAsync()
+    {
+        await _sqlServer.DisposeAsync();
+        await _postgres.DisposeAsync();
+    }
 
     public string SqlServerConnectionString(string database) =>
         new SqlConnectionStringBuilder(_sqlServer.GetConnectionString())
@@ -42,10 +54,20 @@ public sealed class IntegrationFixture : IAsyncLifetime
             Encrypt = false,
         }.ConnectionString;
 
+    public string PostgresConnectionString(string database) =>
+        new NpgsqlConnectionStringBuilder(_postgres.GetConnectionString()) { Database = database }.ConnectionString;
+
     public Task<string> MiniSqlServerAsync() => SeedOnceAsync(
         "mini-sqlserver",
         () => SqlServerConnectionString("parity_mini"),
         cs => new SqlServerSearchStore("mini-sqlserver", cs, PopulationTimeout),
+        MiniCorpus.Chunks,
+        MiniCorpus.CreatedUtc);
+
+    public Task<string> MiniPostgresAsync(string config = PostgresSchema.CustomConfigName) => SeedOnceAsync(
+        $"mini-postgres-{config}",
+        () => PostgresConnectionString($"parity_mini_{config}"),
+        cs => new PostgresSearchStore($"mini-postgres-{config}", cs, config),
         MiniCorpus.Chunks,
         MiniCorpus.CreatedUtc);
 
