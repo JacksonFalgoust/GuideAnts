@@ -120,6 +120,12 @@ public sealed class CompareCommand(
                 $"Profile '{engine.Profile}' has {coverage.Rows} chunks but data/ has {data.Chunks.Count}. Run `seed --profile {engine.Profile}`.");
         }
 
+        if (coverage.IndexedRows != coverage.Rows)
+        {
+            throw new NotSeededException(
+                $"Profile '{engine.Profile}' has {coverage.IndexedRows} of {coverage.Rows} rows full-text indexed (index incomplete or still populating). Re-run `seed --profile {engine.Profile}`.");
+        }
+
         return await engine.Diagnostics.DescribeAsync(ct);
     }
 

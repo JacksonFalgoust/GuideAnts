@@ -3,6 +3,7 @@ using Parity.Cli;
 using Parity.Core;
 using Parity.Core.Contracts;
 using Parity.Core.Data;
+using Parity.Core.Model;
 using Parity.Core.Settings;
 using Parity.Tests.Support;
 
@@ -31,7 +32,7 @@ public sealed class CliCommandTests : IDisposable
 
     public void Dispose() => Directory.Delete(_root, recursive: true);
 
-    private (CliApp App, StringWriter Out, StringWriter Err) App(Func<string, InMemoryEngine>? create = null, IDictionary<string, string?>? overrides = null, bool realEngines = false)
+    private (CliApp App, StringWriter Out, StringWriter Err) App(Func<string, InMemoryEngine>? create = null, IDictionary<string, string?>? overrides = null, bool realEngines = false, Func<string, InMemoryEngine, ISearchDiagnostics>? diagnostics = null)
     {
         var output = new StringWriter();
         var error = new StringWriter();
@@ -42,7 +43,7 @@ public sealed class CliCommandTests : IDisposable
                 engine = _engines[name] = create?.Invoke(name) ?? new InMemoryEngine();
             }
 
-            return new SearchEngine(name, "InMemory", engine, engine);
+            return new SearchEngine(name, "InMemory", engine, diagnostics?.Invoke(name, engine) ?? engine);
         };
         var app = new CliApp(output, error, _root, embedderFactory: _ => null, configOverrides: overrides, engineFactory: factory, probe: new FixedProbe());
         return (app, output, error);
@@ -89,6 +90,54 @@ public sealed class CliCommandTests : IDisposable
         Assert.Equal(ExitCodes.NotSwitchable, await app.RunAsync(["compare"], CancellationToken.None));
         Assert.Contains("NOT SWITCHABLE", output.ToString());
         Assert.Contains("full-text  UNREVIEWED", output.ToString());
+    }
+
+    private sealed class PartialCoverage(InMemoryEngine inner) : ISearchDiagnostics
+    {
+        public Task<EngineResult<IReadOnlyList<VectorHit>>> VectorSearchAsync(float[] vector, Scope scope, int k, CancellationToken ct) => inner.VectorSearchAsync(vector, scope, k, ct);
+
+        public Task<EngineResult<IReadOnlyList<TextMatch>>> TextMatchAsync(string text, Scope scope, CancellationToken ct) => inner.TextMatchAsync(text, scope, ct);
+
+        public Task<EngineResult<IReadOnlyList<ChunkScore>>> ScoreChunksAsync(HybridQuery query, IReadOnlyCollection<Guid> chunkIds, CancellationToken ct) => inner.ScoreChunksAsync(query, chunkIds, ct);
+
+        public Task<EngineResult<IReadOnlyList<Token>>> TokenizeAsync(string text, CancellationToken ct) => inner.TokenizeAsync(text, ct);
+
+        public Task<EngineInfo> DescribeAsync(CancellationToken ct) => inner.DescribeAsync(ct);
+
+        public async Task<IndexCoverage> GetIndexCoverageAsync(CancellationToken ct)
+        {
+            var real = await inner.GetIndexCoverageAsync(ct);
+            return new IndexCoverage(real.Rows, real.Rows - 1);
+        }
+    }
+
+    [Fact]
+    public async Task CompareRefusesAHalfIndexedPrimaryProfile()
+    {
+        var (app, _, error) = App(diagnostics: (name, engine) => name == "b" ? new PartialCoverage(engine) : engine);
+        await app.RunAsync(["seed", "--all"], CancellationToken.None);
+
+        Assert.Equal(ExitCodes.ConfigurationOrData, await app.RunAsync(["compare"], CancellationToken.None));
+        Assert.Contains($"Profile 'b' has {MiniCorpus.Chunks.Count - 1} of {MiniCorpus.Chunks.Count} rows full-text indexed", error.ToString());
+        Assert.Contains("seed --profile b", error.ToString());
+    }
+
+    [Fact]
+    public async Task HalfIndexedInformationalProfileIsNotAvailableAndKeepsTheVerdict()
+    {
+        var (app, output, _) = App(
+            overrides: new Dictionary<string, string?>
+            {
+                ["Profiles:c:Provider"] = "InMemory",
+                ["Profiles:c:ConnectionString"] = "x",
+                ["Parity:Informational:0"] = "c",
+            },
+            diagnostics: (name, engine) => name == "c" ? new PartialCoverage(engine) : engine);
+        await app.RunAsync(["seed", "--all"], CancellationToken.None);
+
+        Assert.Equal(ExitCodes.Success, await app.RunAsync(["compare"], CancellationToken.None));
+        Assert.Contains("SWITCHABLE", output.ToString());
+        Assert.Contains($"c: not available (Profile 'c' has {MiniCorpus.Chunks.Count - 1} of {MiniCorpus.Chunks.Count} rows full-text indexed", output.ToString());
     }
 
     [Fact]

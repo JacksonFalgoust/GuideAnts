@@ -95,6 +95,24 @@ public sealed class PostgresDiagnosticsTests(IntegrationFixture fixture)
     }
 
     [Fact]
+    public async Task StopWordOnlyChunkStillCountsAsIndexed()
+    {
+        // An all-stop-word chunk legitimately yields an empty tsvector; it is still indexed (the generated column is populated).
+        var stopWordChunk = MiniCorpus.Chunks[0] with { Id = MiniCorpus.Id("stop-words-only"), ChunkIndex = 99, Content = "the and of" };
+        IReadOnlyList<Parity.Core.Model.ChunkRecord> chunks = [.. MiniCorpus.Chunks, stopWordChunk];
+        var cs = await fixture.SeedOnceAsync(
+            "stop-word-chunk-postgres",
+            () => fixture.PostgresConnectionString("parity_stopword_chunk"),
+            c => new PostgresSearchStore("stop-word-chunk", c, PostgresSchema.CustomConfigName),
+            chunks,
+            MiniCorpus.CreatedUtc);
+
+        await using var diagnostics = new PostgresSearchDiagnostics("stop-word-chunk", cs, PostgresSchema.CustomConfigName);
+        var coverage = await diagnostics.GetIndexCoverageAsync(CancellationToken.None);
+        Assert.Equal((chunks.Count, chunks.Count), (coverage.Rows, coverage.IndexedRows));
+    }
+
+    [Fact]
     public async Task MissingDatabaseIsReportedAsNotSeeded()
     {
         await using var diagnostics = new PostgresSearchDiagnostics("absent", fixture.PostgresConnectionString("parity_absent"), PostgresSchema.CustomConfigName);

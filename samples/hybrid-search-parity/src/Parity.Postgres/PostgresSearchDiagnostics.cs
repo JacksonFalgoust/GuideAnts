@@ -66,7 +66,7 @@ public sealed class PostgresSearchDiagnostics : ISearchDiagnostics, IAsyncDispos
         """;
 
     private const string CoverageSql = """
-        SELECT CAST(COUNT(*) AS int), CAST(COUNT(*) FILTER (WHERE length("ContentTsv") > 0) AS int) FROM "DocumentChunks"
+        SELECT CAST(COUNT(*) AS int), CAST(COUNT(*) FILTER (WHERE "ContentTsv" IS NOT NULL) AS int) FROM "DocumentChunks"
         """;
 
     private readonly string _profile;
