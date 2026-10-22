@@ -47,12 +47,16 @@ public sealed class SqlServerDiagnosticsTests(IntegrationFixture fixture)
         Assert.Equal(scoped.RawRank!.Value, scoped.TextScore, 12);
     }
 
-    [Fact]
-    public async Task ScoreChunksAgreesWithTheHybridQuery()
+    [Theory]
+    [InlineData("conversation lock", false)]
+    [InlineData("alpha beta", false)]
+    [InlineData("alpha beta", true)]
+    public async Task ScoreChunksAgreesWithTheHybridQuery(string text, bool filterBeforeTopN)
     {
         var cs = await fixture.MiniSqlServerAsync();
-        var query = MiniCorpus.Query("conversation lock", MiniCorpus.ScopeP1);
+        var query = MiniCorpus.Query(text, MiniCorpus.ScopeP1, filterBeforeTopN);
         var hits = (await new SqlServerSearchStore("mini-sqlserver", cs, IntegrationFixture.PopulationTimeout).HybridSearchAsync(query, CancellationToken.None)).Value!;
+        Assert.NotEmpty(hits);
         var scores = (await new SqlServerSearchDiagnostics("mini-sqlserver", cs).ScoreChunksAsync(query, hits.Select(h => h.ChunkId).ToList(), CancellationToken.None)).Value!
             .ToDictionary(s => s.ChunkId);
 
@@ -61,6 +65,25 @@ public sealed class SqlServerDiagnosticsTests(IntegrationFixture fixture)
             Assert.Equal(h.VectorScore, scores[h.ChunkId].VectorScore, 9);
             Assert.Equal(h.TextScore, scores[h.ChunkId].TextScore, 9);
         });
+
+        if (text == "alpha beta")
+        {
+            var m17 = hits.Single(h => h.ChunkId == MiniCorpus.Id("m17"));
+            var score = scores[m17.ChunkId];
+            Assert.True(score.Matched);
+            if (filterBeforeTopN)
+            {
+                Assert.True(m17.TextScore > 0);
+                Assert.True(score.TextScore > 0);
+                Assert.True(score.InCandidates);
+            }
+            else
+            {
+                Assert.Equal(0, m17.TextScore);
+                Assert.False(score.InCandidates);
+                Assert.True(score.RawRank < score.NthCandidateRank);
+            }
+        }
     }
 
     [Fact]

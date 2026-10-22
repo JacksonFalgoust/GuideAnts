@@ -198,8 +198,17 @@ public sealed class SqlServerSearchDiagnostics(string profile, string connection
     }
 
     // The same phrase production builds, passed as a parameter, so no single-quote escaping is needed.
-    private static void AddPhrase(SqlParameterCollection p, string text) =>
-        p.Add(new SqlParameter("@phrase", SqlDbType.NVarChar, 4000) { Value = ProductionEscaping.FullTextPhrase(text) });
+    private static void AddPhrase(SqlParameterCollection p, string text)
+    {
+        var phrase = ProductionEscaping.FullTextPhrase(text);
+        // CONTAINSTABLE rejects nvarchar(max) (error 4110), so the parameter is capped at 4000; refuse rather than silently truncate.
+        if (phrase.Length > 4000)
+        {
+            throw new ParityConfigurationException($"The full-text phrase is {phrase.Length} characters; SQL Server's CONTAINSTABLE accepts at most 4000.");
+        }
+
+        p.Add(new SqlParameter("@phrase", SqlDbType.NVarChar, 4000) { Value = phrase });
+    }
 
     private static void AddScope(SqlParameterCollection p, Scope scope)
     {
