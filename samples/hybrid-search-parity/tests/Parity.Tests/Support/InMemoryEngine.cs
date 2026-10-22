@@ -18,6 +18,9 @@ public sealed class InMemoryEngine : ISearchStore, ISearchDiagnostics
     /// <summary>Return an error to simulate a database rejecting a query.</summary>
     public Func<string, EngineError?> FailOn { get; init; } = _ => null;
 
+    /// <summary>Like <see cref="FailOn"/> but applied only to HybridSearchAsync, so text-match can succeed while hybrid fails.</summary>
+    public Func<string, EngineError?> FailOnHybrid { get; init; } = _ => null;
+
     public List<HybridQuery> HybridQueries { get; } = [];
 
     public static double? DefaultTextRank(string content, string query)
@@ -55,7 +58,7 @@ public sealed class InMemoryEngine : ISearchStore, ISearchDiagnostics
             return Ok<IReadOnlyList<SearchHit>>([]);
         }
 
-        if (FailOn(q.Text) is { } error)
+        if ((FailOn(q.Text) ?? FailOnHybrid(q.Text)) is { } error)
         {
             return Task.FromResult(EngineResult<IReadOnlyList<SearchHit>>.Fail(error));
         }

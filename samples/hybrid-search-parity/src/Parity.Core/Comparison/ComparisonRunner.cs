@@ -74,17 +74,28 @@ public sealed class ComparisonRunner(SearchEngine baseline, SearchEngine candida
         var hybridA = await baseline.Store.HybridSearchAsync(hybridQuery, ct);
         var hybridB = await candidate.Store.HybridSearchAsync(hybridQuery, ct);
 
+        // Rule 2 is decided whenever both text-match calls succeeded, even if a hybrid call failed:
+        // a genuine text difference must never be dropped just because the pair also has an error.
+        TextDiff? textDiff = null;
+        ReviewStatus? textReview = null;
+        TextEvidence? evidence = null;
+        if (textA.IsSuccess && textB.IsSuccess)
+        {
+            textDiff = TextParity.Diff(textA.Value!, textB.Value!);
+            if (!textDiff.IsEqual)
+            {
+                textReview = KnownDifferences.ReviewText(known, query.Id, scope.Label, textDiff);
+                evidence = await GatherEvidenceAsync(query.Text, textDiff, ct);
+            }
+        }
+
         var error = new ErrorOutcome(textA.Error ?? hybridA.Error, textB.Error ?? hybridB.Error);
         if (error.Side != "none")
         {
-            return new PairResult(queryRef, scope.Label, vector, null, null, null, error,
+            return new PairResult(queryRef, scope.Label, vector, textDiff, textReview, evidence, error,
                 KnownDifferences.ReviewError(known, query.Id, scope.Label, error), null, [],
                 hybridA.IsSuccess ? hybridA.Value : [], hybridB.IsSuccess ? hybridB.Value : []);
         }
-
-        var textDiff = TextParity.Diff(textA.Value!, textB.Value!);
-        var textReview = textDiff.IsEqual ? null : KnownDifferences.ReviewText(known, query.Id, scope.Label, textDiff);
-        var evidence = textDiff.IsEqual ? null : await GatherEvidenceAsync(query.Text, textDiff, ct);
 
         var hitsA = hybridA.Value!;
         var hitsB = hybridB.Value!;
@@ -97,10 +108,21 @@ public sealed class ComparisonRunner(SearchEngine baseline, SearchEngine candida
         var union = hitsA.Take(RankingMetrics.TopN).Concat(hitsB.Take(RankingMetrics.TopN)).Select(x => x.ChunkId).Distinct().ToList();
         var scoresA = (await baseline.Diagnostics.ScoreChunksAsync(hybridQuery, union, ct)).Unwrap($"{baseline.Profile} score chunks").ToDictionary(s => s.ChunkId);
         var scoresB = (await candidate.Diagnostics.ScoreChunksAsync(hybridQuery, union, ct)).Unwrap($"{candidate.Profile} score chunks").ToDictionary(s => s.ChunkId);
+        RequireAllScored(baseline.Profile, union, scoresA);
+        RequireAllScored(candidate.Profile, union, scoresB);
         var evaluation = RankingMetrics.EvaluatePair(hitsA, hitsB, SideScores(scoresA), SideScores(scoresB), p.TieTolerance);
         var differences = DifferenceClassifier.Explain(evaluation.DifferingChunks, scoresA, scoresB, hitsA, hitsB, p.VectorTolerance, p.TieTolerance);
 
         return new PairResult(queryRef, scope.Label, vector, textDiff, textReview, evidence, null, null, evaluation.Metrics, differences, hitsA, hitsB);
+    }
+
+    private static void RequireAllScored(string profile, IReadOnlyList<Guid> union, IReadOnlyDictionary<Guid, ChunkScore> scores)
+    {
+        var missing = union.Where(id => !scores.ContainsKey(id)).ToList();
+        if (missing.Count > 0)
+        {
+            throw new InvalidOperationException($"{profile} did not return scores for chunk(s) {string.Join(", ", missing)}.");
+        }
     }
 
     private IReadOnlyDictionary<Guid, double> SideScores(IReadOnlyDictionary<Guid, ChunkScore> scores) =>
