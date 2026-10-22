@@ -142,20 +142,7 @@ public sealed class SqlServerSearchStore(string profile, string connectionString
         }
     }
 
-    internal async Task<SqlConnection> OpenAsync(CancellationToken ct)
-    {
-        var connection = new SqlConnection(connectionString);
-        try
-        {
-            await connection.OpenAsync(ct);
-            return connection;
-        }
-        catch (SqlException ex)
-        {
-            await connection.DisposeAsync();
-            throw SqlServerErrors.Translate(ex, profile, _host) ?? (Exception)ex;
-        }
-    }
+    internal Task<SqlConnection> OpenAsync(CancellationToken ct) => SqlServerConnections.OpenAsync(connectionString, profile, ct);
 
     private static async Task ExecuteAsync(SqlConnection connection, string sql, CancellationToken ct)
     {
