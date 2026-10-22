@@ -18,7 +18,7 @@ public sealed class DatabaseCollection : ICollectionFixture<IntegrationFixture>
 }
 
 /// <summary>
-/// Starts both containers once per test run. Databases are seeded lazily, once per key. The SQL
+/// Starts both containers (one after the other) once per test run. Databases are seeded lazily, once per key. The SQL
 /// Server image is amd64-only, so on Apple Silicon it runs emulated and takes a few minutes to start.
 /// </summary>
 public sealed class IntegrationFixture : IAsyncLifetime
@@ -38,7 +38,20 @@ public sealed class IntegrationFixture : IAsyncLifetime
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<string, string> _seeded = new();
 
-    public Task InitializeAsync() => Task.WhenAll(_sqlServer.StartAsync(), _postgres.StartAsync());
+    // Sequential on purpose: starting both at once made SQL Server time out on TCP connect under emulation.
+    public async Task InitializeAsync()
+    {
+        await _sqlServer.StartAsync();
+        try
+        {
+            await _postgres.StartAsync();
+        }
+        catch
+        {
+            await _sqlServer.DisposeAsync();
+            throw;
+        }
+    }
 
     public async Task DisposeAsync()
     {
