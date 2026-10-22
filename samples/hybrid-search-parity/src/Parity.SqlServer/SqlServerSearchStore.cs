@@ -69,7 +69,7 @@ public sealed class SqlServerSearchStore(string profile, string connectionString
         while (true)
         {
             int status, pending, indexed, rows;
-            await using (var command = new SqlCommand(SqlServerSchema.PopulationStatus, connection))
+            await using (var command = new SqlCommand(SqlServerSchema.PopulationStatus, connection) { CommandTimeout = 120 })
             await using (var reader = await command.ExecuteReaderAsync(ct))
             {
                 await reader.ReadAsync(ct);
@@ -105,7 +105,7 @@ public sealed class SqlServerSearchStore(string profile, string connectionString
         try
         {
             await using var connection = await OpenAsync(ct);
-            await using var command = new SqlCommand(sql, connection);
+            await using var command = new SqlCommand(sql, connection) { CommandTimeout = 120 };
             // The same parameters, types and sizes as production.
             command.Parameters.Add(new SqlParameter("@indexName", SqlDbType.NVarChar, 255) { Value = query.Scope.IndexName });
             command.Parameters.Add(new SqlParameter("@notebookId", SqlDbType.UniqueIdentifier) { Value = (object?)query.Scope.NotebookId ?? DBNull.Value });
@@ -133,7 +133,7 @@ public sealed class SqlServerSearchStore(string profile, string connectionString
         }
         catch (SqlException ex)
         {
-            if (SqlServerErrors.Translate(ex, profile, _host) is { } fatal)
+            if (SqlServerErrors.Translate(ex, profile, _host, connecting: false) is { } fatal)
             {
                 throw fatal;
             }

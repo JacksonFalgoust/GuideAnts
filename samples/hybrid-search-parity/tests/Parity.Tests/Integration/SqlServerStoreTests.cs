@@ -27,6 +27,7 @@ public sealed class SqlServerStoreTests(IntegrationFixture fixture)
         var result = await store.HybridSearchAsync(MiniCorpus.Query("conversation lock", MiniCorpus.ScopeP1), CancellationToken.None);
         Assert.True(result.IsSuccess);
         Assert.Equal(5, result.Value.Count);
+        Assert.True(Hit(result.Value, "m01").TextScore > 0); // the full-text index was rebuilt
     }
 
     [Fact]
@@ -47,21 +48,23 @@ public sealed class SqlServerStoreTests(IntegrationFixture fixture)
         Assert.Equal(new[] { MiniCorpus.Id("m02") }, result.Value!.Select(h => h.ChunkId));
     }
 
+    // Observed on the real engine (default language, system stoplist): every awkward query succeeds. Quote
+    // doubling keeps the literal valid, and stop-word-only or punctuation-only phrases return success with
+    // all-zero text scores rather than an error. Value = the chunk expected to be the only one with a text match.
     [Theory]
-    [InlineData("O'Reilly Media")]
-    [InlineData("don't restart")]
-    [InlineData("say \"hello world\" twice")]
-    [InlineData("the and of")]
-    [InlineData("!!! ???")]
-    public async Task AwkwardQueriesNeverThrow(string text)
+    [InlineData("O'Reilly Media", "m03")]
+    [InlineData("don't restart", "m03")]
+    [InlineData("say \"hello world\" twice", "m04")]
+    [InlineData("the and of", null)]
+    [InlineData("!!! ???", null)]
+    public async Task AwkwardQueriesSucceedWithTheObservedTextMatches(string text, string? matchedKey)
     {
         var result = await (await StoreAsync()).HybridSearchAsync(MiniCorpus.Query(text, MiniCorpus.ScopeP1), CancellationToken.None);
-        Assert.True(result.IsSuccess || result.Error is not null);
-        if (text == "O'Reilly Media")
-        {
-            Assert.True(result.IsSuccess, result.Error?.Message);
-            Assert.True(Hit(result.Value, "m03").TextScore > 0);
-        }
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(5, result.Value.Count);
+        var matched = result.Value.Where(h => h.TextScore > 0).Select(h => h.ChunkId).ToList();
+        Assert.Equal(matchedKey is null ? [] : new List<Guid> { MiniCorpus.Id(matchedKey) }, matched);
     }
 
     [Fact]
