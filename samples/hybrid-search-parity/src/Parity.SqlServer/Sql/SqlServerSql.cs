@@ -22,6 +22,26 @@ public static class SqlServerSql
     /// <summary>Production's SQL text, extracted byte for byte from HybridSearcher.cs @ 9f8cd102.</summary>
     public static string ProductionTemplate { get; } = LoadResource("Parity.SqlServer.ProductionHybrid.sql");
 
+    /// <summary>The production line that picks the top-N text candidates across every project.</summary>
+    public const string ProductionCandidateJoin = "LEFT JOIN CONTAINSTABLE(DocumentChunks, Content, '{escapedFtQuery}', {candidateLimit}) ft";
+
+    private const string ScopedCandidateJoin = """
+        LEFT JOIN (
+                            SELECT TOP ({candidateLimit}) ct.[KEY], ct.[RANK]
+                            FROM CONTAINSTABLE(DocumentChunks, Content, '{escapedFtQuery}') ct
+                            INNER JOIN DocumentChunks scoped ON scoped.Id = ct.[KEY]
+                            WHERE scoped.IndexName = @indexName
+                                AND (@notebookId IS NULL OR scoped.NotebookId = @notebookId)
+                            ORDER BY ct.[RANK] DESC
+                        ) ft
+        """;
+
+    /// <summary>Informational only, never production: the scope filter is applied before the top-N cut.</summary>
+    public static string QuirkFixedTemplate { get; } = ProductionTemplate.Replace(ProductionCandidateJoin, ScopedCandidateJoin);
+
+    public static string BuildQuirkFixedHybrid(float[] vector, string query, int candidateLimit) =>
+        Fill(QuirkFixedTemplate, vector, query, candidateLimit);
+
     public static string BuildProductionHybrid(float[] vector, string query, int candidateLimit) =>
         Fill(ProductionTemplate, vector, query, candidateLimit);
 
