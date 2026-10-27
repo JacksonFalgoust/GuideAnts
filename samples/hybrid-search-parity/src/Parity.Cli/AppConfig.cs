@@ -11,16 +11,21 @@ public static class AppConfig
     /// <summary>
     /// appsettings.json in the sample root, then user secrets, then PARITY_-prefixed environment
     /// variables (for example PARITY_Profiles__postgres__ConnectionString), then <paramref name="overrides"/>.
+    /// Pass <c>includeLocalOverrides: false</c> to skip user secrets and PARITY_ variables (hermetic tests).
     /// OPENAI_API_KEY (or, failing that, OPENROUTER_API_KEY, which also retargets a default endpoint/model
     /// to OpenRouter) fills OpenAI:ApiKey when nothing else set it.
     /// </summary>
-    public static ParitySettings Load(string sampleRoot, IDictionary<string, string?>? overrides = null, Func<string, string?>? environment = null)
+    public static ParitySettings Load(string sampleRoot, IDictionary<string, string?>? overrides = null, Func<string, string?>? environment = null, bool includeLocalOverrides = true)
     {
         var builder = new ConfigurationBuilder()
             .SetBasePath(sampleRoot)
-            .AddJsonFile("appsettings.json", optional: false)
-            .AddUserSecrets(typeof(AppConfig).Assembly, optional: true)
-            .AddEnvironmentVariables(prefix: "PARITY_");
+            .AddJsonFile("appsettings.json", optional: false);
+        if (includeLocalOverrides)
+        {
+            builder.AddUserSecrets(typeof(AppConfig).Assembly, optional: true)
+                .AddEnvironmentVariables(prefix: "PARITY_");
+        }
+
         if (overrides is not null)
         {
             builder.AddInMemoryCollection(overrides);

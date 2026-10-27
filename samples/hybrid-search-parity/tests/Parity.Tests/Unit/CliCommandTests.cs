@@ -45,7 +45,7 @@ public sealed class CliCommandTests : IDisposable
 
             return new SearchEngine(name, "InMemory", engine, diagnostics?.Invoke(name, engine) ?? engine);
         };
-        var app = new CliApp(output, error, _root, embedderFactory: _ => null, configOverrides: overrides, engineFactory: factory, probe: new FixedProbe());
+        var app = new CliApp(output, error, _root, embedderFactory: _ => null, configOverrides: overrides, engineFactory: factory, probe: new FixedProbe(), includeLocalOverrides: false);
         return (app, output, error);
     }
 

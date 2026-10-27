@@ -37,7 +37,7 @@ public sealed class CliTests : IDisposable
     [Fact]
     public void CommittedAppsettingsMatchTheSpec()
     {
-        var settings = AppConfig.Load(RepoPaths.FindSampleRoot(), environment: _ => null);
+        var settings = AppConfig.Load(RepoPaths.FindSampleRoot(), environment: _ => null, includeLocalOverrides: false);
 
         Assert.Equal(new[] { "postgres", "postgres-english", "sqlserver" }, settings.Profiles.Keys.Order());
         Assert.Equal("SqlServer", settings.Profiles["sqlserver"].Provider);
@@ -54,7 +54,7 @@ public sealed class CliTests : IDisposable
     [Fact]
     public void OpenAiKeyFallsBackToTheEnvironment()
     {
-        var settings = AppConfig.Load(_root, new Dictionary<string, string?> { ["OpenAI:ApiKey"] = "" }, name => name == "OPENAI_API_KEY" ? "sk-env" : null);
+        var settings = AppConfig.Load(_root, new Dictionary<string, string?> { ["OpenAI:ApiKey"] = "" }, name => name == "OPENAI_API_KEY" ? "sk-env" : null, includeLocalOverrides: false);
         Assert.Equal("sk-env", settings.OpenAI.ApiKey);
     }
 
@@ -67,7 +67,7 @@ public sealed class CliTests : IDisposable
     [Fact]
     public void OpenRouterKeyAloneSwitchesKeyEndpointAndModel()
     {
-        var settings = AppConfig.Load(_root, environment: Env(null, "or-env"));
+        var settings = AppConfig.Load(_root, environment: Env(null, "or-env"), includeLocalOverrides: false);
         Assert.Equal("or-env", settings.OpenAI.ApiKey);
         Assert.Equal(OpenRouterEndpoint, settings.OpenAI.Endpoint);
         Assert.Equal("openai/text-embedding-3-small", settings.OpenAI.Model);
@@ -76,7 +76,7 @@ public sealed class CliTests : IDisposable
     [Fact]
     public void OpenAiKeyAloneLeavesEndpointAndModelAtDefaults()
     {
-        var settings = AppConfig.Load(_root, environment: Env("sk-env", null));
+        var settings = AppConfig.Load(_root, environment: Env("sk-env", null), includeLocalOverrides: false);
         Assert.Equal("sk-env", settings.OpenAI.ApiKey);
         Assert.Equal(OpenAiEndpoint, settings.OpenAI.Endpoint);
         Assert.Equal("text-embedding-3-small", settings.OpenAI.Model);
@@ -85,7 +85,7 @@ public sealed class CliTests : IDisposable
     [Fact]
     public void OpenAiKeyWinsWhenBothAreSet()
     {
-        var settings = AppConfig.Load(_root, environment: Env("sk-env", "or-env"));
+        var settings = AppConfig.Load(_root, environment: Env("sk-env", "or-env"), includeLocalOverrides: false);
         Assert.Equal("sk-env", settings.OpenAI.ApiKey);
         Assert.Equal(OpenAiEndpoint, settings.OpenAI.Endpoint);
         Assert.Equal("text-embedding-3-small", settings.OpenAI.Model);
@@ -99,7 +99,7 @@ public sealed class CliTests : IDisposable
             ["OpenAI:Endpoint"] = "https://proxy.example/v1",
             ["OpenAI:Model"] = "custom-model",
         };
-        var settings = AppConfig.Load(_root, overrides, Env(null, "or-env"));
+        var settings = AppConfig.Load(_root, overrides, Env(null, "or-env"), includeLocalOverrides: false);
         Assert.Equal("or-env", settings.OpenAI.ApiKey);
         Assert.Equal("https://proxy.example/v1", settings.OpenAI.Endpoint);
         Assert.Equal("custom-model", settings.OpenAI.Model);
@@ -108,8 +108,26 @@ public sealed class CliTests : IDisposable
     [Fact]
     public void EmptyEnvironmentLeavesTheKeyNull()
     {
-        var settings = AppConfig.Load(_root, environment: Env(null, null));
+        var settings = AppConfig.Load(_root, environment: Env(null, null), includeLocalOverrides: false);
         Assert.Null(settings.OpenAI.ApiKey);
+    }
+
+    [Fact]
+    public void LocalOverridesAreSkippedWhenIncludeLocalOverridesIsFalse()
+    {
+        File.WriteAllText(Path.Combine(_root, "appsettings.json"), "{\"OpenAI\":{\"Model\":\"from-appsettings\"}}");
+        const string variable = "PARITY_OpenAI__Model";
+        var previous = Environment.GetEnvironmentVariable(variable);
+        try
+        {
+            Environment.SetEnvironmentVariable(variable, "from-env");
+            Assert.Equal("from-env", AppConfig.Load(_root, environment: Env(null, null)).OpenAI.Model);
+            Assert.Equal("from-appsettings", AppConfig.Load(_root, environment: Env(null, null), includeLocalOverrides: false).OpenAI.Model);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variable, previous);
+        }
     }
 
     [Fact]
@@ -117,7 +135,7 @@ public sealed class CliTests : IDisposable
     {
         var output = new StringWriter();
         var error = new StringWriter();
-        var app = new CliApp(output, error, _root);
+        var app = new CliApp(output, error, _root, includeLocalOverrides: false);
 
         Assert.Equal(ExitCodes.Success, await app.RunAsync(["--help"], CancellationToken.None));
         Assert.Contains("generate-data", output.ToString());

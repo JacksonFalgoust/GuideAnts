@@ -15,7 +15,8 @@ public sealed class CliApp(
     Func<string, IDocsSource>? docsSourceFactory = null,
     IDictionary<string, string?>? configOverrides = null,
     Func<ParitySettings, string, SearchEngine>? engineFactory = null,
-    IEnvironmentProbe? probe = null)
+    IEnvironmentProbe? probe = null,
+    bool includeLocalOverrides = true)
 {
     public const string HelpText = """
         Hybrid search parity demo (SQL Server vs PostgreSQL)
@@ -43,7 +44,7 @@ public sealed class CliApp(
                 return ExitCodes.Success;
             }
 
-            var settings = AppConfig.Load(_sampleRoot, configOverrides);
+            var settings = AppConfig.Load(_sampleRoot, configOverrides, includeLocalOverrides: includeLocalOverrides);
             return cli.Command switch
             {
                 "generate-data" => await new GenerateDataCommand(output, _sampleRoot, DocsSource, Embedder(settings)).RunAsync(cli, ct),
