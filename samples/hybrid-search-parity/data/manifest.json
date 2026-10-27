@@ -1,0 +1,21 @@
+{
+  "corpusCommit": "9f8cd102db290ccce13e5841afb4a9a725674a51",
+  "generatedUtc": "2026-10-27T20:59:07.192933+00:00",
+  "model": "openai/text-embedding-3-small",
+  "dimensions": 1536,
+  "chunkCount": 1210,
+  "queryCount": 38,
+  "files": {
+    "data/chunks.jsonl": "0db7380eaa975ae042982c4cbe28955ad4065ba55382f87bca1cd18bd993be42",
+    "data/embeddings.f32": "389e1cb98e501722cda35de1e6b9b2d709e3411c8db9e340b680911cf9df5c04",
+    "data/query-embeddings.f32": "ead7c3bd1b32de5aacfa3c2b08f4b9441d0eabbcab3ef76ae874a7e5e664973e",
+    "data/ground-truth.json": "c3cb44a7827916e205ca7210c13ca0a80d51bdcadf77f27fb330742341ef0ea3",
+    "inputs/edge-cases.json": "ac1d89d3118384a4c16d31363eda1a5f2877e1e07027f6c0794fba936236b376",
+    "inputs/queries.json": "211ecfab695052699635a5ee34faee4cf8fceb65481b451e6cc6d554518a98f4"
+  },
+  "productionSources": {
+    "src/server/GuideAntsApi.BackgroundJobs/Services/Search/HybridSearcher.cs": "c8d0dabc3cd8a45c69e645862cc2bef0c8a39c848a37eeeb8b366c7a5750fc16",
+    "src/server/GuideAntsApi.BackgroundJobs/Services/Indexing/HybridIndexer.cs": "0612e4d5d05fa049bd25efc0ade2a23266c79f93d37a4525e54aa0f42341e362",
+    "src/server/GuideAntsApi.BackgroundJobs/Services/Indexing/MarkdownInlineImageSanitizer.cs": "e7b77e1854f6e6b72006f0eda7a7ca11e5ee8990b8f4abb6382b44ce2f7145ff"
+  }
+}
