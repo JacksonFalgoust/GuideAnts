@@ -1,6 +1,12 @@
 using Microsoft.Data.SqlClient;
 using Npgsql;
+using Parity.Cli;
+using Parity.Cli.Commands;
+using Parity.Core;
+using Parity.Core.Comparison;
 using Parity.Core.Contracts;
+using Parity.Core.Corpus;
+using Parity.Core.Data;
 using Parity.Core.Model;
 using Parity.Core.Settings;
 using Parity.Postgres;
@@ -37,6 +43,55 @@ public sealed class IntegrationFixture : IAsyncLifetime
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<string, string> _seeded = new();
+
+    private readonly SemaphoreSlim _comparisonGate = new(1, 1);
+    private IReadOnlyList<PairResult>? _fullPairs;
+
+    public Lazy<DataSet> FullData { get; } = new(() => DataStore.Load(RepoPaths.FindSampleRoot()));
+
+    /// <summary>Both engines seeded with the committed data, created through the same factory the CLI uses.</summary>
+    public async Task<(SearchEngine Baseline, SearchEngine Candidate)> FullEnginesAsync()
+    {
+        var data = FullData.Value;
+        var createdUtc = data.Manifest.GeneratedUtc.UtcDateTime;
+        var sqlCs = await SeedOnceAsync("full-sqlserver", () => SqlServerConnectionString("parity"),
+            cs => new SqlServerSearchStore("sqlserver", cs, PopulationTimeout), data.Chunks, createdUtc);
+        var pgCs = await SeedOnceAsync("full-postgres", () => PostgresConnectionString("parity"),
+            cs => new PostgresSearchStore("postgres", cs, PostgresSchema.CustomConfigName), data.Chunks, createdUtc);
+
+        var settings = new ParitySettings();
+        settings.Profiles["sqlserver"] = new ProfileSettings { Provider = "SqlServer", ConnectionString = sqlCs };
+        settings.Profiles["postgres"] = new ProfileSettings { Provider = "Postgres", ConnectionString = pgCs, TextSearchConfig = PostgresSchema.CustomConfigName };
+        return (SearchStoreFactory.Create(settings, "sqlserver"), SearchStoreFactory.Create(settings, "postgres"));
+    }
+
+    /// <summary>The verdict comparison (production behaviour, saved queries, all four scopes), computed once.</summary>
+    public async Task<IReadOnlyList<PairResult>> FullComparisonAsync()
+    {
+        await _comparisonGate.WaitAsync();
+        try
+        {
+            if (_fullPairs is not null)
+            {
+                return _fullPairs;
+            }
+
+            var (baseline, candidate) = await FullEnginesAsync();
+            await using (baseline)
+            await using (candidate)
+            {
+                var known = KnownDifferences.Load(Path.Combine(RepoPaths.FindSampleRoot(), CompareCommand.KnownDifferencesFile));
+                _fullPairs = await new ComparisonRunner(baseline, candidate, FullData.Value, new ParitySettings(), known)
+                    .RunAsync(ParityScopes.All, CancellationToken.None);
+            }
+
+            return _fullPairs;
+        }
+        finally
+        {
+            _comparisonGate.Release();
+        }
+    }
 
     // Sequential on purpose: starting both at once made SQL Server time out on TCP connect under emulation.
     public async Task InitializeAsync()
