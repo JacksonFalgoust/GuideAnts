@@ -43,6 +43,7 @@ public sealed class PostgresSearchStore : ISearchStore, IAsyncDisposable
     {
         var database = new NpgsqlConnectionStringBuilder(_connectionString).Database
             ?? throw new ParityConfigurationException($"Profile '{_profile}' connection string has no Database.");
+        SeedSafety.RequireSafeToDrop(_profile, new NpgsqlConnectionStringBuilder(_connectionString).Host, database);
         var admin = new NpgsqlConnectionStringBuilder(_connectionString) { Database = "postgres", Pooling = false };
         await using (var connection = new NpgsqlConnection(admin.ConnectionString))
         {

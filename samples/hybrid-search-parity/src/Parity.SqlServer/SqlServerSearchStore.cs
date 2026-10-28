@@ -32,6 +32,7 @@ public sealed class SqlServerSearchStore(string profile, string connectionString
 
     public async Task EnsureSchemaAsync(CancellationToken ct)
     {
+        SeedSafety.RequireSafeToDrop(profile, _host, new SqlConnectionStringBuilder(connectionString).InitialCatalog);
         await using (var context = SqlServerParityDbContext.Create(connectionString))
         {
             await context.Database.EnsureDeletedAsync(ct);
