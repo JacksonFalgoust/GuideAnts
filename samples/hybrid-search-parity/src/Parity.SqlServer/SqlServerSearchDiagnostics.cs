@@ -197,7 +197,10 @@ public sealed class SqlServerSearchDiagnostics(string profile, string connection
         }
     }
 
-    // The same phrase production builds, passed as a parameter, so no single-quote escaping is needed.
+    // The same phrase production builds, passed as a parameter, so no single-quote escaping is needed. It is typed
+    // VarChar, not NVarChar, on purpose: production splices the phrase as a non-N literal, which the database's
+    // default (Latin-1) collation converts to its code page, so characters outside the code page become '?'. A
+    // VarChar parameter goes through the same conversion, so the diagnostics search what production searches.
     private static void AddPhrase(SqlParameterCollection p, string text)
     {
         var phrase = ProductionEscaping.FullTextPhrase(text);
@@ -207,7 +210,7 @@ public sealed class SqlServerSearchDiagnostics(string profile, string connection
             throw new ParityConfigurationException($"The full-text phrase is {phrase.Length} characters; SQL Server's CONTAINSTABLE accepts at most 4000.");
         }
 
-        p.Add(new SqlParameter("@phrase", SqlDbType.NVarChar, 4000) { Value = phrase });
+        p.Add(new SqlParameter("@phrase", SqlDbType.VarChar, 4000) { Value = phrase });
     }
 
     private static void AddScope(SqlParameterCollection p, Scope scope)
