@@ -1,18 +1,26 @@
 # Hybrid search parity results
 
-**Verdict: NOT SWITCHABLE**. `sqlserver` (baseline) vs `postgres` (candidate), 152 query/scope pairs, run 2026-10-28 00:14 UTC.
+**Verdict: NOT SWITCHABLE**. `sqlserver` (baseline) vs `postgres` (candidate), 152 query/scope pairs, run 2026-10-28 00:56 UTC.
 
 | Condition | Result | Value |
 |---|---|---|
 | Vector parity | PASS | 152/152 pairs |
-| Full-text and error differences reviewed and accepted | FAIL | 4 open |
+| Full-text and error differences reviewed and accepted | FAIL | 0 unreviewed, 0 snapshot-changed, 4 blocker |
 | Mean top-5 overlap ≥ 0.9 | PASS | 0\.955 |
 | Same \#1 ≥ 80% | PASS | 92\.1% |
 | Zero unexplained differences | PASS | 0 |
 
 ## Environment
 
-- Sample commit: `23d193b3`
+- Sample commit: `ef720af6`
+- known-differences.json: SHA-256 `981ba747d6dec26e803097c5cf15da971812cc19c54a2553127460d3017af653`
+- Data files (SHA-256 from data/manifest.json):
+  - `data/chunks.jsonl`: `0db7380eaa975ae042982c4cbe28955ad4065ba55382f87bca1cd18bd993be42`
+  - `data/embeddings.f32`: `389e1cb98e501722cda35de1e6b9b2d709e3411c8db9e340b680911cf9df5c04`
+  - `data/ground-truth.json`: `c3cb44a7827916e205ca7210c13ca0a80d51bdcadf77f27fb330742341ef0ea3`
+  - `data/query-embeddings.f32`: `ead7c3bd1b32de5aacfa3c2b08f4b9441d0eabbcab3ef76ae874a7e5e664973e`
+  - `inputs/edge-cases.json`: `ac1d89d3118384a4c16d31363eda1a5f2877e1e07027f6c0794fba936236b376`
+  - `inputs/queries.json`: `211ecfab695052699635a5ee34faee4cf8fceb65481b451e6cc6d554518a98f4`
 - Data: corpus `9f8cd102`, model `openai/text-embedding-3-small`, 1210 chunks, 38 queries, generated 2026-10-27
 - Thresholds: mean top-5 overlap ≥ 0.9, same #1 ≥ 80%; vector tolerance 1E-5, tie tolerance 1E-6
 - Baseline (SqlServer): Microsoft SQL Server 2025 (RTM-CU7) (KB5096981) - 17.0.4065.4 (X64)
@@ -37,7 +45,7 @@
 
 ### `Q02` · P1: "router preset"
 
-Status: **acceptable** (tokenization: SQL Server's word breaker also indexes the parts of hyphen, dot and slash compounds (file names and paths such as \`host-folder-mounts.md\`, \`SKILL.md\`, \`docs/notebook-header-service-toolbar-spec.md\`) w…)
+Status: **acceptable** (tokenization: SQL Server's word breaker also indexes the parts of hyphen, dot and slash compounds (file names and paths such as \`host-folder-mounts.md\`, \`SKILL.md\`, \`docs/notebook-header-service-toolbar-spec.md\`) w…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: `docs/model-chat-behavior-contract.md#12`, `docs/model-chat-behavior-contract.md#11`
 - Candidate only: none
@@ -49,7 +57,7 @@ Status: **acceptable** (tokenization: SQL Server's word breaker also indexes the
 
 ### `Q02` · P2: "router preset"
 
-Status: **acceptable** (tokenization: SQL Server's word breaker also indexes the parts of hyphen, dot and slash compounds (file names and paths such as \`host-folder-mounts.md\`, \`SKILL.md\`, \`docs/notebook-header-service-toolbar-spec.md\`) w…)
+Status: **acceptable** (tokenization: SQL Server's word breaker also indexes the parts of hyphen, dot and slash compounds (file names and paths such as \`host-folder-mounts.md\`, \`SKILL.md\`, \`docs/notebook-header-service-toolbar-spec.md\`) w…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: `docs/llama-router-preset-ui-proposal.md#0`
 - Candidate only: none
@@ -59,7 +67,7 @@ Status: **acceptable** (tokenization: SQL Server's word breaker also indexes the
 
 ### `Q03` · P1: "host folder mounts"
 
-Status: **acceptable** (tokenization: Verified false positives: every SQL-Server-only chunk matches only inside \`host-folder-mounts.md\` links or the \`/host-folder-mounts\` URL; none contains the spaced prose phrase (investigation task-19-i…)
+Status: **acceptable** (tokenization: Verified false positives: every SQL-Server-only chunk matches only inside \`host-folder-mounts.md\` links or the \`/host-folder-mounts\` URL; none contains the spaced prose phrase (investigation task-19-i…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: `docs/host-agent-and-desktop-runtime-proposal.md#10`, `docs/host-agent-and-desktop-runtime-proposal.md#0`, `docs/project-root-host-folder-mounts.md#10`, `docs/host-agent-and-desktop-runtime-proposal.md#11`, `docs/host-agent-and-desktop-runtime-proposal.md#13`, `docs/host-agent-and-desktop-runtime-proposal.md#14`, `docs/project-root-host-folder-mounts.md#9`
 - Candidate only: none
@@ -77,7 +85,7 @@ Status: **acceptable** (tokenization: Verified false positives: every SQL-Server
 
 ### `Q03` · P2: "host folder mounts"
 
-Status: **acceptable** (tokenization: Verified false positives: every SQL-Server-only chunk matches only inside \`host-folder-mounts.md\` links or the \`/host-folder-mounts\` URL; none contains the spaced prose phrase (investigation task-19-i…)
+Status: **acceptable** (tokenization: Verified false positives: every SQL-Server-only chunk matches only inside \`host-folder-mounts.md\` links or the \`/host-folder-mounts\` URL; none contains the spaced prose phrase (investigation task-19-i…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: `docs/secure-cli-auth.md#12`, `docs/secure-cli-auth.md#3`, `docs/host-folder-mounts.md#4`, `docs/secure-cli-auth.md#13`, `docs/host-folder-mounts.md#8`, `docs/host-folder-mounts.md#3`, `docs/secure-cli-auth.md#2`, `docs/host-folder-mounts.md#7`
 - Candidate only: none
@@ -95,7 +103,7 @@ Status: **acceptable** (tokenization: Verified false positives: every SQL-Server
 
 ### `Q03` · P3: "host folder mounts"
 
-Status: **acceptable** (tokenization: Verified false positives: every SQL-Server-only chunk matches only inside \`host-folder-mounts.md\` links or the \`/host-folder-mounts\` URL; none contains the spaced prose phrase (investigation task-19-i…)
+Status: **acceptable** (tokenization: Verified false positives: every SQL-Server-only chunk matches only inside \`host-folder-mounts.md\` links or the \`/host-folder-mounts\` URL; none contains the spaced prose phrase (investigation task-19-i…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: `docs/host-folder-notebook-mounts-plan.md#11`, `docs/host-folder-notebook-mounts-plan.md#12`, `docs/host-folder-notebook-mounts-plan.md#10`
 - Candidate only: none
@@ -109,7 +117,7 @@ Status: **acceptable** (tokenization: Verified false positives: every SQL-Server
 
 ### `Q03` · P1/N1: "host folder mounts"
 
-Status: **acceptable** (tokenization: Verified false positives: every SQL-Server-only chunk matches only inside \`host-folder-mounts.md\` links or the \`/host-folder-mounts\` URL; none contains the spaced prose phrase (investigation task-19-i…)
+Status: **acceptable** (tokenization: Verified false positives: every SQL-Server-only chunk matches only inside \`host-folder-mounts.md\` links or the \`/host-folder-mounts\` URL; none contains the spaced prose phrase (investigation task-19-i…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: `docs/project-root-host-folder-mounts.md#10`, `docs/project-root-host-folder-mounts.md#9`
 - Candidate only: none
@@ -121,7 +129,7 @@ Status: **acceptable** (tokenization: Verified false positives: every SQL-Server
 
 ### `Q04` · P2: "script execution agent"
 
-Status: **acceptable** (tokenization: SQL Server's word breaker also indexes the parts of hyphen, dot and slash compounds (file names and paths such as \`host-folder-mounts.md\`, \`SKILL.md\`, \`docs/notebook-header-service-toolbar-spec.md\`) w…)
+Status: **acceptable** (tokenization: SQL Server's word breaker also indexes the parts of hyphen, dot and slash compounds (file names and paths such as \`host-folder-mounts.md\`, \`SKILL.md\`, \`docs/notebook-header-service-toolbar-spec.md\`) w…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: `docs/mcp-tool-execution-design.md#0`
 - Candidate only: none
@@ -131,7 +139,7 @@ Status: **acceptable** (tokenization: SQL Server's word breaker also indexes the
 
 ### `Q05` · P2: "tool call limits"
 
-Status: **acceptable** (tokenization: SQL Server's word breaker also indexes the parts of hyphen, dot and slash compounds (file names and paths such as \`host-folder-mounts.md\`, \`SKILL.md\`, \`docs/notebook-header-service-toolbar-spec.md\`) w…)
+Status: **acceptable** (tokenization: SQL Server's word breaker also indexes the parts of hyphen, dot and slash compounds (file names and paths such as \`host-folder-mounts.md\`, \`SKILL.md\`, \`docs/notebook-header-service-toolbar-spec.md\`) w…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: `docs/conversation-stream-reconnect-and-cancel-proposal.md#1`, `docs/conversation-stream-reconnect-and-cancel-proposal.md#2`
 - Candidate only: none
@@ -143,7 +151,7 @@ Status: **acceptable** (tokenization: SQL Server's word breaker also indexes the
 
 ### `Q07` · P1: "Docker Desktop"
 
-Status: **acceptable** (punctuation: Apostrophe: \`Desktop's\` matches only in Postgres in P1; \`wsl/docker\` is one token in Postgres in P2. Mixed direction, small counts, bounded by the 0.3 text weight.)
+Status: **acceptable** (punctuation: Apostrophe: \`Desktop's\` matches only in Postgres in P1; \`wsl/docker\` is one token in Postgres in P2. Mixed direction, small counts, bounded by the 0.3 text weight.) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: none
 - Candidate only: `docs/developer-config-guide.md#1`
@@ -153,7 +161,7 @@ Status: **acceptable** (punctuation: Apostrophe: \`Desktop's\` matches only in P
 
 ### `Q07` · P2: "Docker Desktop"
 
-Status: **acceptable** (punctuation: Apostrophe: \`Desktop's\` matches only in Postgres in P1; \`wsl/docker\` is one token in Postgres in P2. Mixed direction, small counts, bounded by the 0.3 text weight.)
+Status: **acceptable** (punctuation: Apostrophe: \`Desktop's\` matches only in Postgres in P1; \`wsl/docker\` is one token in Postgres in P2. Mixed direction, small counts, bounded by the 0.3 text weight.) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: `docs/rocm-container-runtime-and-wsl-setup.md#1`
 - Candidate only: none
@@ -163,7 +171,7 @@ Status: **acceptable** (punctuation: Apostrophe: \`Desktop's\` matches only in P
 
 ### `Q08` · P2: "bearer token"
 
-Status: **acceptable** (punctuation: \`\<token\>\` and \`services/api.ts\` are single Postgres tokens. Mixed direction, small counts, bounded by the 0.3 text weight.)
+Status: **acceptable** (punctuation: \`\<token\>\` and \`services/api.ts\` are single Postgres tokens. Mixed direction, small counts, bounded by the 0.3 text weight.) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: `docs/auth-system-plan.md#37`, `docs/auth-system-plan.md#36`
 - Candidate only: none
@@ -175,7 +183,7 @@ Status: **acceptable** (punctuation: \`\<token\>\` and \`services/api.ts\` are s
 
 ### `Q09` · P1: "GuideAnts Guide"
 
-Status: **acceptable** (tokenization: 3 of 4 SQL-Server-only chunks are path/slug false positives (\`docs/guideants-guide-implementation-plan.md\`, \`guideants-guide/\`, \`GuideAntsGuideProvider.tsx\`); one is a TRUE prose occurrence ("GuideAnt…)
+Status: **acceptable** (tokenization: 3 of 4 SQL-Server-only chunks are path/slug false positives (\`docs/guideants-guide-implementation-plan.md\`, \`guideants-guide/\`, \`GuideAntsGuideProvider.tsx\`); one is a TRUE prose occurrence ("GuideAnt…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: `docs/developer-config-guide.md#24`
 - Candidate only: none
@@ -185,7 +193,7 @@ Status: **acceptable** (tokenization: 3 of 4 SQL-Server-only chunks are path/slu
 
 ### `Q09` · P3: "GuideAnts Guide"
 
-Status: **acceptable** (tokenization: 3 of 4 SQL-Server-only chunks are path/slug false positives (\`docs/guideants-guide-implementation-plan.md\`, \`guideants-guide/\`, \`GuideAntsGuideProvider.tsx\`); one is a TRUE prose occurrence ("GuideAnt…)
+Status: **acceptable** (tokenization: 3 of 4 SQL-Server-only chunks are path/slug false positives (\`docs/guideants-guide-implementation-plan.md\`, \`guideants-guide/\`, \`GuideAntsGuideProvider.tsx\`); one is a TRUE prose occurrence ("GuideAnt…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: `docs/guideants-guide-implementation-plan.md#31`, `docs/published-openai-wire-continuation-gap-report.md#9`, `docs/published-openai-wire-continuation-gap-report.md#10`
 - Candidate only: none
@@ -199,7 +207,7 @@ Status: **acceptable** (tokenization: 3 of 4 SQL-Server-only chunks are path/slu
 
 ### `Q10` · P3: "service toolbar"
 
-Status: **acceptable** (tokenization: SQL Server's word breaker also indexes the parts of hyphen, dot and slash compounds (file names and paths such as \`host-folder-mounts.md\`, \`SKILL.md\`, \`docs/notebook-header-service-toolbar-spec.md\`) w…)
+Status: **acceptable** (tokenization: SQL Server's word breaker also indexes the parts of hyphen, dot and slash compounds (file names and paths such as \`host-folder-mounts.md\`, \`SKILL.md\`, \`docs/notebook-header-service-toolbar-spec.md\`) w…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: `docs/notebook-header-service-toolbar-implementation-plan.md#30`, `docs/notebook-header-service-toolbar-implementation-plan.md#28`, `docs/notebook-header-service-toolbar-implementation-plan.md#29`
 - Candidate only: none
@@ -213,7 +221,7 @@ Status: **acceptable** (tokenization: SQL Server's word breaker also indexes the
 
 ### `Q20` · P1: "llama.cpp"
 
-Status: **acceptable** (tokenization: SQL Server also indexes \`llama\` and \`cpp\` as separate words, so it matches chunks without the dotted compound \`llama.cpp\` (110 SQL-Server-only chunks over 4 scopes); hybrid impact measured: overlap@5…)
+Status: **acceptable** (tokenization: SQL Server also indexes \`llama\` and \`cpp\` as separate words, so it matches chunks without the dotted compound \`llama.cpp\` (110 SQL-Server-only chunks over 4 scopes); hybrid impact measured: overlap@5…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: `docs/model-chat-behavior-contract.md#7`, `docs/model-chat-behavior-contract.md#5`, `docs/rocm-build-support-plan.md#1`, `docs/settings-architecture.md#13`, `docs/parameter-surface-test-plan.md#8`, `docs/llama-model-download-and-runtime-management.md#1`, `docs/parameter-surface-test-plan.md#12`, `docs/rocm-build-support-plan.md#7`, `docs/model-chat-behavior-contract.md#11`, `docs/parameter-surface-test-plan.md#19`, `docs/developer-config-guide.md#18`, `docs/model-chat-behavior-contract.md#3`, `docs/rocm-build-support-plan.md#6`, `docs/settings-architecture.md#12`, `docs/rocm-build-support-plan.md#0`, `docs/model-chat-behavior-contract.md#10`, `docs/llama-model-download-and-runtime-management.md#2`, `docs/settings-architecture.md#0`, `docs/model-chat-behavior-contract.md#1`, `docs/parameter-surface-test-plan.md#18`, `docs/rocm-build-support-plan.md#3`, `docs/model-chat-behavior-contract.md#2`, `docs/model-chat-behavior-contract.md#0`, `docs/model-chat-behavior-contract.md#9`, `docs/parameter-surface-test-plan.md#10`, `docs/parameter-surface-test-plan.md#11`, `docs/model-chat-behavior-contract.md#8`, `docs/developer-config-guide.md#3`, `docs/parameter-surface-test-plan.md#9`, `docs/rocm-build-support-plan.md#2`, `docs/developer-config-guide.md#17`, `docs/model-chat-behavior-contract.md#4`
 - Candidate only: none
@@ -227,11 +235,11 @@ Status: **acceptable** (tokenization: SQL Server also indexes \`llama\` and \`cp
 - baseline-only `docs/settings-architecture.md#13`: "ntime host sections (\`LlamaCpp\`, \`LocalServiceHosts\`) - Telemetry \#\# 7) Persistence architecture \#\# 7.1 \`ApplicationSettings\` table (section JSON) Entity: \`A"
   - baseline tokens `ntime` | `host` | `sections` | `llamacpp` | `localservicehosts` | `telemetry` | ~~`7`~~ | ~~`nn7`~~ | `persistence` | `architecture` | `7.1` | `nn7d1` | `applicationsettings` | `table` | `section` | `json` | `entity` | ~~`a`~~; candidate tokens `ntime` | `host` | `sections` | `llamacpp` | `localservicehosts` | `telemetry` | `7` | `persistence` | `architecture` | `7.1` | `applicationsettings` | `table` | `section` | `json` | `entity` | ~~`A`~~
 - baseline-only `docs/parameter-surface-test-plan.md#8`: "hints) \| Surface \| Navigation \| \|---------\|------------\| \| Settings Overview \| \`/settings\` → Overview tab \| \| Catalog \| \`/settings\` → Models & Runtime → Catal"
-  - baseline tokens `hints` | `surface` | `navigation` | `settings` | `overview` | `settings` | `overview` | `tab` | `catalog` | `settings` | `models` | `runtime` | `catal`; candidate tokens `hints` | `surface` | `navigation` | `settings` | `overview` | `/settings` | `overview` | `tab` | `catalog` | `/settings` | `models` | `runtime` | `catal`
+  - baseline tokens `hints` | `surface` | `navigation` | `settings` | `overview` | `settings` | `END OF FILE` | `overview` | `tab` | `catalog` | `settings` | `END OF FILE` | `models` | `runtime` | `END OF FILE` | `catal`; candidate tokens `hints` | `surface` | `navigation` | `settings` | `overview` | `/settings` | `overview` | `tab` | `catalog` | `/settings` | `models` | `runtime` | `catal`
 
 ### `Q20` · P2: "llama.cpp"
 
-Status: **acceptable** (tokenization: SQL Server also indexes \`llama\` and \`cpp\` as separate words, so it matches chunks without the dotted compound \`llama.cpp\` (110 SQL-Server-only chunks over 4 scopes); hybrid impact measured: overlap@5…)
+Status: **acceptable** (tokenization: SQL Server also indexes \`llama\` and \`cpp\` as separate words, so it matches chunks without the dotted compound \`llama.cpp\` (110 SQL-Server-only chunks over 4 scopes); hybrid impact measured: overlap@5…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: `docs/setup-guide.md#18`, `docs/provider-model-service-config-2026-05-25.md#8`, `docs/llama-router-preset-ui-proposal.md#61`, `docs/llama-router-preset-ui-proposal.md#42`, `docs/openai-compatible-provider-plan.md#4`, `docs/setup-guide.md#20`, `docs/provider-model-service-config-2026-05-25.md#6`, `docs/setup-guide.md#19`, `docs/hf-repository-file-picker-multi-agent-plan.md#11`, `docs/guideants-feature-value-framing-v2.md#7`, `docs/guideants-feature-value-framing-v2.md#6`, `docs/setup-guide.md#17`, `docs/hf-repository-file-picker-multi-agent-plan.md#9`, `inputs/edge-cases.json#E08`, `docs/openai-compatible-provider-plan.md#3`, `docs/setup-guide.md#16`, `docs/hf-repository-file-picker-multi-agent-plan.md#8`, `docs/hf-repository-file-picker-multi-agent-plan.md#3`, `docs/llama-router-preset-ui-proposal.md#43`, `docs/hf-repository-file-picker-multi-agent-plan.md#12`, `docs/model-parameter-override-fix-plan.md#5`, `docs/llama-router-preset-ui-proposal.md#60`, `docs/model-parameter-override-fix-plan.md#4`, `docs/openai-compatible-provider-plan.md#2`, `docs/conversation-stream-reconnect-and-cancel-proposal.md#1`, `docs/openai-compatible-provider-plan.md#0`, `docs/add-ai-services-wizard.md#6`, `docs/add-ai-services-wizard.md#7`, `docs/hf-repository-file-picker-multi-agent-plan.md#2`, `docs/provider-model-service-config-2026-05-25.md#7`, `docs/llama-router-preset-ui-proposal.md#38`, `docs/hf-repository-file-picker-multi-agent-plan.md#0`, `docs/openai-compatible-provider-plan.md#1`, `docs/setup-guide.md#21`, `docs/conversation-stream-reconnect-and-cancel-proposal.md#2`
 - Candidate only: none
@@ -249,13 +257,13 @@ Status: **acceptable** (tokenization: SQL Server also indexes \`llama\` and \`cp
 
 ### `Q20` · P3: "llama.cpp"
 
-Status: **acceptable** (tokenization: SQL Server also indexes \`llama\` and \`cpp\` as separate words, so it matches chunks without the dotted compound \`llama.cpp\` (110 SQL-Server-only chunks over 4 scopes); hybrid impact measured: overlap@5…)
+Status: **acceptable** (tokenization: SQL Server also indexes \`llama\` and \`cpp\` as separate words, so it matches chunks without the dotted compound \`llama.cpp\` (110 SQL-Server-only chunks over 4 scopes); hybrid impact measured: overlap@5…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: `docs/hf-repository-file-picker-requirements.md#17`, `docs/adding-models.md#1`, `docs/hf-repository-file-picker-requirements.md#8`, `docs/local-ai-setup-guide.md#1`, `docs/setup-wizard-local-ai-test-plan.md#1`, `docs/routing-literal-audit-2026-05-22.md#1`, `docs/routing-literal-audit-2026-05-22.md#7`, `docs/adding-models.md#3`, `docs/hf-repository-file-picker-requirements.md#22`, `docs/hf-repository-file-picker-requirements.md#2`, `docs/local-ai-setup-guide.md#2`, `docs/hf-repository-file-picker-requirements.md#7`, `docs/hf-repository-file-picker-requirements.md#15`, `docs/hf-repository-file-picker-requirements.md#3`, `docs/hf-repository-file-picker-requirements.md#1`, `docs/model-sampling-policy-regression-fix.md#0`, `docs/settings-and-llama-completion-requirements.md#4`, `docs/chat-providers-architecture-and-extensibility.md#9`, `docs/hf-repository-file-picker-requirements.md#21`, `docs/routing-literal-audit-2026-05-22.md#0`, `docs/model-sampling-policy-regression-fix.md#2`, `docs/adding-models.md#0`, `docs/hf-repository-file-picker-requirements.md#0`, `docs/setup-wizard-local-ai-test-plan.md#0`, `docs/routing-literal-audit-2026-05-22.md#2`, `docs/chat-providers-architecture-and-extensibility.md#8`, `docs/adding-models.md#2`, `docs/adding-models.md#4`, `docs/hf-repository-file-picker-requirements.md#4`, `docs/hf-repository-file-picker-requirements.md#16`, `docs/settings-and-llama-completion-requirements.md#3`, `docs/routing-literal-audit-2026-05-22.md#3`, `docs/model-sampling-policy-regression-fix.md#1`, `docs/notebook-header-service-toolbar-implementation-plan.md#17`, `docs/notebook-header-service-toolbar-implementation-plan.md#16`
 - Candidate only: none
 - Query tokens: baseline `llama.cpp` | `llama` | `cpp`; candidate `llama.cpp`
 - baseline-only `docs/hf-repository-file-picker-requirements.md#17`: "ions over \`HuggingFaceRepositoryFileDto\[\]\` plus a small context record; they are unit-testable and MUST have coverage for: valid pick, ambiguous pick → no auto-"
-  - baseline tokens `ions` | ~~`over`~~ | `huggingfacerepositoryfiledto` | `plus` | ~~`a`~~ | `small` | `context` | `record` | ~~`they`~~ | ~~`are`~~ | `unit-testable` | `unit` | `testable` | ~~`and`~~ | ~~`must`~~ | ~~`have`~~ | `coverage` | ~~`for`~~ | `valid` | `pick` | `ambiguous` | `pick` | ~~`no`~~ | `auto`; candidate tokens `ions` | ~~`over`~~ | `huggingfacerepositoryfiledto` | `plus` | ~~`a`~~ | `small` | `context` | `record` | ~~`they`~~ | ~~`are`~~ | `unit-testable` | `unit` | `testable` | ~~`and`~~ | `must` | ~~`have`~~ | `coverage` | ~~`for`~~ | `valid` | `pick` | `ambiguous` | `pick` | ~~`no`~~ | `auto`
+  - baseline tokens `ions` | ~~`over`~~ | `huggingfacerepositoryfiledto` | `plus` | ~~`a`~~ | `small` | `context` | `record` | ~~`they`~~ | ~~`are`~~ | `unit-testable` | `unit` | `testable` | ~~`and`~~ | ~~`must`~~ | ~~`have`~~ | `coverage` | ~~`for`~~ | `valid` | `pick` | `ambiguous` | `pick` | `END OF FILE` | ~~`no`~~ | `auto`; candidate tokens `ions` | ~~`over`~~ | `huggingfacerepositoryfiledto` | `plus` | ~~`a`~~ | `small` | `context` | `record` | ~~`they`~~ | ~~`are`~~ | `unit-testable` | `unit` | `testable` | ~~`and`~~ | `must` | ~~`have`~~ | `coverage` | ~~`for`~~ | `valid` | `pick` | `ambiguous` | `pick` | ~~`no`~~ | `auto`
 - baseline-only `docs/adding-models.md#1`: "\*\*Local Llama Runtime\*\* \| Inventory, load/unload, and lifecycle actions for local llama-cpp models \| --- \#\# 2. Model chat behavior (on the catalog row) Param"
   - baseline tokens `local` | `llama` | `runtime` | `inventory` | `load` | `unload` | ~~`and`~~ | `lifecycle` | `actions` | ~~`for`~~ | `local` | `llama-cpp` | `llama` | `cpp` | `models` | ~~`2`~~ | ~~`nn2`~~ | `END OF FILE` | `model` | `chat` | `behavior` | ~~`on`~~ | ~~`the`~~ | `catalog` | `row` | `param`; candidate tokens `local` | `llama` | `runtime` | `inventory` | `load/unload` | ~~`and`~~ | `lifecycle` | `actions` | ~~`for`~~ | `local` | `llama-cpp` | `llama` | `cpp` | `models` | `2` | `model` | `chat` | `behavior` | ~~`on`~~ | ~~`the`~~ | `catalog` | `row` | `param`
 - baseline-only `docs/hf-repository-file-picker-requirements.md#8`: "t it. This is already true of \`HuggingFaceTokenResolver\`; regressions are blocked by existing tests. \#\#\# 4.5 Accessibility and operator ergonomics - Repo inpu"
@@ -267,7 +275,7 @@ Status: **acceptable** (tokenization: SQL Server also indexes \`llama\` and \`cp
 
 ### `Q20` · P1/N1: "llama.cpp"
 
-Status: **acceptable** (tokenization: SQL Server also indexes \`llama\` and \`cpp\` as separate words, so it matches chunks without the dotted compound \`llama.cpp\` (110 SQL-Server-only chunks over 4 scopes); hybrid impact measured: overlap@5…)
+Status: **acceptable** (tokenization: SQL Server also indexes \`llama\` and \`cpp\` as separate words, so it matches chunks without the dotted compound \`llama.cpp\` (110 SQL-Server-only chunks over 4 scopes); hybrid impact measured: overlap@5…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: `docs/rocm-build-support-plan.md#1`, `docs/llama-model-download-and-runtime-management.md#1`, `docs/rocm-build-support-plan.md#7`, `docs/rocm-build-support-plan.md#6`, `docs/rocm-build-support-plan.md#0`, `docs/llama-model-download-and-runtime-management.md#2`, `docs/rocm-build-support-plan.md#3`, `docs/rocm-build-support-plan.md#2`
 - Candidate only: none
@@ -285,7 +293,7 @@ Status: **acceptable** (tokenization: SQL Server also indexes \`llama\` and \`cp
 
 ### `Q25` · P2: "https://github.com/ggml-org/llama.cpp"
 
-Status: **acceptable** (tokenization: Postgres lexes the chunk's URL as one longer token (\`github.com/ggml-org/llama.cpp/releases\`) so the shorter URL phrase never matches (also under the stock \`english\` and \`simple\` configs); SQL Server…)
+Status: **acceptable** (tokenization: Postgres lexes the chunk's URL as one longer token (\`github.com/ggml-org/llama.cpp/releases\`) so the shorter URL phrase never matches (also under the stock \`english\` and \`simple\` configs); SQL Server…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: `inputs/edge-cases.json#E08`
 - Candidate only: none
@@ -295,7 +303,7 @@ Status: **acceptable** (tokenization: Postgres lexes the chunk's URL as one long
 
 ### `Q27` · P2: "SKILL.md"
 
-Status: **acceptable** (tokenization: SQL Server's word breaker also indexes the parts of hyphen, dot and slash compounds (file names and paths such as \`host-folder-mounts.md\`, \`SKILL.md\`, \`docs/notebook-header-service-toolbar-spec.md\`) w…)
+Status: **acceptable** (tokenization: SQL Server's word breaker also indexes the parts of hyphen, dot and slash compounds (file names and paths such as \`host-folder-mounts.md\`, \`SKILL.md\`, \`docs/notebook-header-service-toolbar-spec.md\`) w…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: `docs/skills-support-proposal.md#12`, `docs/skills-support-proposal.md#9`, `docs/skills-support-proposal.md#11`, `docs/skills-support-proposal.md#8`
 - Candidate only: none
@@ -311,7 +319,7 @@ Status: **acceptable** (tokenization: SQL Server's word breaker also indexes the
 
 ### `Q33` · P1: "C\#"
 
-Status: **BLOCKER** (punctuation: Postgres's parser drops the \`\#\`, so the phrase "C\#" becomes the bare letter \`c\` (matches 120 chunks, 114 of them Postgres-only). Symbol terms like "C\#" are realistic queries in a .NET product; a custo…)
+Status: **BLOCKER** (punctuation: Postgres's parser drops the \`\#\`, so the phrase "C\#" becomes the bare letter \`c\` (it matches 120 chunks table-wide against 10 for SQL Server; the Postgres-only matches are 30 in P1, 65 in P2 and 15 in…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: none
 - Candidate only: `docs/script-execution-agent-admin-api-requirements-plan.md#9`, `docs/compaction-adr-algorithmic-extraction.md#3`, `docs/parameter-surface-test-plan.md#4`, `docs/host-agent-and-desktop-runtime-proposal.md#2`, `docs/compaction-adr-algorithmic-extraction.md#6`, `docs/parameter-surface-test-plan.md#8`, `docs/parameter-surface-test-plan.md#17`, `docs/parameter-surface-test-plan.md#15`, `docs/parameter-surface-test-plan.md#12`, `docs/parameter-surface-test-plan.md#16`, `docs/compaction-adr-algorithmic-extraction.md#2`, `docs/tool-sources-guide-builder-proposal.md#3`, `docs/hf-provider-completion-plan-for-iteration.md#12`, `docs/compaction-adr-algorithmic-extraction.md#5`, `docs/parameter-surface-test-plan.md#3`, `docs/parameter-surface-test-plan.md#2`, `docs/script-execution-agent-admin-api-requirements-plan.md#10`, `docs/guideants-feature-value-framing-v4.md#9`, `docs/parameter-surface-test-plan.md#18`, `docs/parameter-surface-test-plan.md#21`, `docs/parameter-surface-test-plan.md#20`, `docs/parameter-surface-test-plan.md#10`, `docs/host-agent-and-desktop-runtime-proposal.md#1`, `docs/parameter-surface-test-plan.md#11`, `docs/conversation-service-composition-plan.md#5`, `docs/parameter-surface-test-plan.md#5`, `docs/parameter-surface-test-plan.md#9`, `docs/conversation-service-composition-plan.md#8`, `docs/hf-provider-completion-plan-for-iteration.md#13`, `docs/notebook-header-service-toolbar-spec.md#8`
@@ -329,7 +337,7 @@ Status: **BLOCKER** (punctuation: Postgres's parser drops the \`\#\`, so the phr
 
 ### `Q33` · P2: "C\#"
 
-Status: **BLOCKER** (punctuation: Postgres's parser drops the \`\#\`, so the phrase "C\#" becomes the bare letter \`c\` (matches 120 chunks, 114 of them Postgres-only). Symbol terms like "C\#" are realistic queries in a .NET product; a custo…)
+Status: **BLOCKER** (punctuation: Postgres's parser drops the \`\#\`, so the phrase "C\#" becomes the bare letter \`c\` (it matches 120 chunks table-wide against 10 for SQL Server; the Postgres-only matches are 30 in P1, 65 in P2 and 15 in…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: none
 - Candidate only: `docs/mcp-tool-execution-design.md#15`, `docs/client-navigation-user-actions.md#17`, `docs/client-navigation-user-actions.md#28`, `docs/client-navigation-user-actions.md#0`, `docs/client-navigation-user-actions.md#13`, `docs/compaction-adr-manual-trigger.md#3`, `docs/model-parameter-override-fix-plan.md#8`, `docs/client-navigation-user-actions.md#16`, `docs/conversation-stream-reconnect-and-cancel-proposal.md#18`, `docs/client-navigation-user-actions.md#18`, `docs/rocm-container-runtime-and-wsl-setup.md#12`, `docs/client-navigation-user-actions.md#3`, `docs/name-based-storage-migration-plan.md#25`, `docs/secure-cli-auth.md#11`, `docs/name-based-storage-migration-plan.md#15`, `docs/compaction-llamacpp-e2e-runbook.md#0`, `docs/secure-cli-auth.md#12`, `docs/client-navigation-user-actions.md#21`, `docs/client-navigation-user-actions.md#27`, `docs/conversation-stream-reconnect-and-cancel-proposal.md#15`, `docs/model-parameter-override-fix-plan.md#9`, `docs/conversation-stream-reconnect-and-cancel-proposal.md#17`, `docs/client-navigation-user-actions.md#23`, `docs/client-navigation-user-actions.md#1`, `docs/llama-router-preset-ui-proposal.md#10`, `docs/tool-call-limits-proposal.md#14`, `docs/client-navigation-user-actions.md#29`, `docs/client-navigation-user-actions.md#32`, `docs/conversation-stream-reconnect-and-cancel-proposal.md#14`, `docs/client-navigation-user-actions.md#7`, `docs/rocm-container-runtime-and-wsl-setup.md#11`, `docs/rocm-container-runtime-and-wsl-setup.md#7`, `docs/tool-call-limits-proposal.md#13`, `docs/client-navigation-user-actions.md#24`, `docs/client-navigation-user-actions.md#26`, `docs/client-navigation-user-actions.md#20`, `docs/name-based-storage-migration-plan.md#16`, `docs/client-navigation-user-actions.md#31`, `docs/llama-router-preset-ui-proposal.md#68`, `docs/client-navigation-user-actions.md#9`, `docs/client-navigation-user-actions.md#6`, `docs/client-navigation-user-actions.md#10`, `docs/client-navigation-user-actions.md#15`, `docs/client-navigation-user-actions.md#14`, `docs/rocm-container-runtime-and-wsl-setup.md#13`, `docs/compaction-llamacpp-e2e-runbook.md#1`, `docs/llama-router-preset-ui-proposal.md#14`, `docs/rocm-container-runtime-and-wsl-setup.md#8`, `docs/client-navigation-user-actions.md#33`, `docs/mcp-tool-execution-design.md#13`, `docs/llama-router-preset-ui-proposal.md#8`, `docs/mcp-tool-execution-design.md#16`, `docs/client-navigation-user-actions.md#19`, `docs/mcp-tool-execution-design.md#14`, `docs/name-based-storage-migration-plan.md#24`, `docs/llama-router-preset-ui-proposal.md#13`, `docs/mcp-tool-execution-design.md#9`, `docs/llama-router-preset-ui-proposal.md#15`, `docs/compaction-adr-manual-trigger.md#2`, `docs/client-navigation-user-actions.md#2`, `docs/client-navigation-user-actions.md#8`, `docs/mcp-tool-execution-design.md#8`, `docs/llama-router-preset-ui-proposal.md#9`, `docs/client-navigation-user-actions.md#22`, `docs/client-navigation-user-actions.md#25`
@@ -337,9 +345,9 @@ Status: **BLOCKER** (punctuation: Postgres's parser drops the \`\#\`, so the phr
 - candidate-only `docs/mcp-tool-execution-design.md#15`: "\| \*\*LOCKED\*\* \| \| E13 \| Wire architecture \| Thin adapter over \`SendMessageStreamAsync\`; live streaming all facades \| \*\*LOCKED\*\* \| \| E14 \| Wire tool visibility \|"
   - baseline tokens `locked` | `e13` | `wire` | `architecture` | `thin` | `adapter` | ~~`over`~~ | `sendmessagestreamasync` | `live` | `streaming` | ~~`all`~~ | `facades` | `locked` | `e14` | `wire` | `tool` | `visibility`; candidate tokens `locked` | `e13` | `wire` | `architecture` | `thin` | `adapter` | ~~`over`~~ | `sendmessagestreamasync` | `live` | `streaming` | ~~`all`~~ | `facades` | `locked` | `e14` | `wire` | `tool` | `visibility`
 - candidate-only `docs/client-navigation-user-actions.md#17`: ".tsx\` \#\#\# Search bar \| Action \| Result \| A \| C \| R \| \|--------\|--------\|---\|---\|---\| \| Type in search \| Filter notebooks + files \| ✓ \| ✓ \| ✓ \| \| \*\*×\*\* clear \|"
-  - baseline tokens `tsx` | `search` | `bar` | `action` | `result` | ~~`a`~~ | ~~`c`~~ | ~~`r`~~ | `type` | ~~`in`~~ | `search` | `filter` | `notebooks` | `files` | `clear`; candidate tokens `tsx` | `search` | `bar` | `action` | `result` | ~~`A`~~ | `c` | `r` | `type` | ~~`in`~~ | `search` | `filter` | `notebooks` | `files` | `clear`
+  - baseline tokens `tsx` | `search` | `bar` | `action` | `result` | ~~`a`~~ | ~~`c`~~ | ~~`r`~~ | `type` | ~~`in`~~ | `search` | `filter` | `notebooks` | `files` | `END OF FILE` | `clear`; candidate tokens `tsx` | `search` | `bar` | `action` | `result` | ~~`A`~~ | `c` | `r` | `type` | ~~`in`~~ | `search` | `filter` | `notebooks` | `files` | `clear`
 - candidate-only `docs/client-navigation-user-actions.md#28`: "ebook\*\* \| Click \| \`SaveAssistantContentDialog\` \| ✓ \| ✓ \| — \| \| \*\*Edit message\*\* \| Click \| Edit assistant output (last message only) \| ✓ \| ✓ \| — \| \| \*\*Copy to cl"
-  - baseline tokens `ebook` | `click` | `saveassistantcontentdialog` | `edit` | `message` | `click` | `edit` | `assistant` | `output` | `last` | `message` | ~~`only`~~ | `copy` | ~~`to`~~ | `cl`; candidate tokens `ebook` | `click` | `saveassistantcontentdialog` | `edit` | `message` | `click` | `edit` | `assistant` | `output` | `last` | `message` | ~~`only`~~ | `copy` | ~~`to`~~ | `cl`
+  - baseline tokens `ebook` | `click` | `saveassistantcontentdialog` | `END OF FILE` | `edit` | `message` | `click` | `edit` | `assistant` | `output` | `last` | `message` | ~~`only`~~ | `END OF FILE` | `copy` | ~~`to`~~ | `cl`; candidate tokens `ebook` | `click` | `saveassistantcontentdialog` | `edit` | `message` | `click` | `edit` | `assistant` | `output` | `last` | `message` | ~~`only`~~ | `copy` | ~~`to`~~ | `cl`
 - candidate-only `docs/client-navigation-user-actions.md#0`: "\# GuideAnts Client — Navigation & User Action Catalog Action-level inventory of what a user can click, type, right-click, or trigger via keyboard in the GuideA"
   - baseline tokens `guideants` | `client` | `navigation` | `user` | `action` | `catalog` | `action-level` | `action` | `level` | `inventory` | ~~`of`~~ | ~~`what`~~ | ~~`a`~~ | `user` | ~~`can`~~ | `click` | `type` | `right-click` | `right` | `click` | ~~`or`~~ | `trigger` | `via` | `keyboard` | ~~`in`~~ | ~~`the`~~ | `guidea`; candidate tokens `guideants` | `client` | `navigation` | `user` | `action` | `catalog` | `action-level` | `action` | `level` | `inventory` | ~~`of`~~ | ~~`what`~~ | ~~`a`~~ | `user` | ~~`can`~~ | `click` | `type` | `right-click` | `right` | `click` | ~~`or`~~ | `trigger` | `via` | `keyboard` | ~~`in`~~ | ~~`the`~~ | `guidea`
 - candidate-only `docs/client-navigation-user-actions.md#13`: "Chat defaults model pickers + \*\*Save chat defaults\*\* \| Update global chat model \| \| Per-row \*\*Open in Connections\*\* / \*\*Open in Services\*\* / \*\*Open Models & Run"
@@ -347,7 +355,7 @@ Status: **BLOCKER** (punctuation: Postgres's parser drops the \`\#\`, so the phr
 
 ### `Q33` · P3: "C\#"
 
-Status: **BLOCKER** (punctuation: Postgres's parser drops the \`\#\`, so the phrase "C\#" becomes the bare letter \`c\` (matches 120 chunks, 114 of them Postgres-only). Symbol terms like "C\#" are realistic queries in a .NET product; a custo…)
+Status: **BLOCKER** (punctuation: Postgres's parser drops the \`\#\`, so the phrase "C\#" becomes the bare letter \`c\` (it matches 120 chunks table-wide against 10 for SQL Server; the Postgres-only matches are 30 in P1, 65 in P2 and 15 in…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: none
 - Candidate only: `docs/guideants-guide-implementation-plan.md#25`, `docs/guideants-feature-list-analysis-approach.md#4`, `docs/hf-repository-file-picker-requirements.md#22`, `docs/guideants-guide-implementation-plan.md#24`, `docs/hf-repository-file-picker-requirements.md#21`, `docs/spa-unmatched-route-404-design.md#12`, `docs/chat-providers-architecture-and-extensibility.md#12`, `docs/spa-unmatched-route-404-design.md#11`, `docs/guideants-feature-value-framing-v3.md#0`, `docs/guideants-feature-list-analysis-approach.md#3`, `docs/media-extraction-ai-router-plan.md#3`, `docs/notebook-header-service-toolbar-implementation-plan.md#16`, `docs/media-extraction-ai-router-plan.md#2`, `docs/chat-providers-architecture-and-extensibility.md#11`, `docs/published-openai-wire-continuation-gap-report.md#13`
@@ -365,7 +373,7 @@ Status: **BLOCKER** (punctuation: Postgres's parser drops the \`\#\`, so the phr
 
 ### `Q33` · P1/N1: "C\#"
 
-Status: **BLOCKER** (punctuation: Postgres's parser drops the \`\#\`, so the phrase "C\#" becomes the bare letter \`c\` (matches 120 chunks, 114 of them Postgres-only). Symbol terms like "C\#" are realistic queries in a .NET product; a custo…)
+Status: **BLOCKER** (punctuation: Postgres's parser drops the \`\#\`, so the phrase "C\#" becomes the bare letter \`c\` (it matches 120 chunks table-wide against 10 for SQL Server; the Postgres-only matches are 30 in P1, 65 in P2 and 15 in…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: none
 - Candidate only: `docs/tool-sources-guide-builder-proposal.md#3`, `docs/guideants-feature-value-framing-v4.md#9`, `docs/conversation-service-composition-plan.md#5`, `docs/conversation-service-composition-plan.md#8`
@@ -381,7 +389,7 @@ Status: **BLOCKER** (punctuation: Postgres's parser drops the \`\#\`, so the phr
 
 ### `Q37` · P1: "published guide"
 
-Status: **acceptable** (punctuation: Hyphen/slash compounds such as \`published/private\`, \`guide-adjacent\`, \`PublishedConversationService.cs\` shift token positions so the phrase matches only in SQL Server. Mixed direction, small counts, b…)
+Status: **acceptable** (punctuation: Hyphen/slash compounds such as \`published/private\`, \`guide-adjacent\`, \`PublishedConversationService.cs\` shift token positions so the phrase matches only in SQL Server. Mixed direction, small counts, b…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: `docs/conversation-service-composition-plan.md#3`, `docs/conversation-service-composition-plan.md#4`, `inputs/edge-cases.json#E13`
 - Candidate only: none
@@ -395,7 +403,7 @@ Status: **acceptable** (punctuation: Hyphen/slash compounds such as \`published/
 
 ### `Q37` · P1/N1: "published guide"
 
-Status: **acceptable** (punctuation: Hyphen/slash compounds such as \`published/private\`, \`guide-adjacent\`, \`PublishedConversationService.cs\` shift token positions so the phrase matches only in SQL Server. Mixed direction, small counts, b…)
+Status: **acceptable** (punctuation: Hyphen/slash compounds such as \`published/private\`, \`guide-adjacent\`, \`PublishedConversationService.cs\` shift token positions so the phrase matches only in SQL Server. Mixed direction, small counts, b…) [reviewed by Claude (on behalf of JacksonFalgoust, who delegated the review) on 2026-10-27]
 
 - Baseline only: `docs/conversation-service-composition-plan.md#3`, `docs/conversation-service-composition-plan.md#4`
 - Candidate only: none
@@ -713,8 +721,18 @@ Mean top-5 overlap 0.955 over 152 pairs; same #1 in 92.1%.
 
 ## Informational (not part of the verdict)
 
+Extra and lost matches are distinct chunks across scopes P1 to P3 (P1/N1 is a subset of P1). The quirk-fixed run shows none: its text match has no top-N, so they would equal Rule 2's totals.
+
 | Run | Pairs | Mean top-5 overlap | Same #1 | Extra matches | Lost matches |
 |---|---|---|---|---|---|
-| Quirk fixed on both engines (not production) | 152 | 0.939 | 92.8% | 115 | 156 |
-| postgres-english | 152 | 0.949 | 91.4% | 161 | 151 |
+| Quirk fixed on both engines (not production) | 152 | 0.939 | 92.8% | – | – |
+| postgres-english | 152 | 0.949 | 91.4% | 152 | 135 |
+
+## Limits
+
+- **Review.** 26 difference reviews in this run came from `known-differences.json`. In the committed file the user delegated them to Claude ("do whatever you think is best") and none was reviewed line by line by a human; each entry's `reviewedBy` says so. Edit the file and re-run `compare` to change a decision.
+- **Real recall misses were accepted.** Two accepted Postgres differences lose true matches: Q09 (one real prose occurrence, "GuideAnts guide/internal tools", is missed because Postgres lexes `guide/internal` as one token) and Q25 (a URL-prefix search finds nothing, because Postgres keeps the longer URL as one token).
+- **Tie-break explanations.** 8 hybrid differences are explained as `top-n-boundary-tie`. They come from diagnostics whose tie-breaking among equal text ranks is unspecified, the same nondeterminism as production's own query.
+- **Stop lists differ.** SQL Server's system stoplist and Postgres's `english` list are not the same (for example single letters, digits, `not` and `use`). The token evidence above shows it where it matters.
+- **One corpus.** The evidence is a single corpus (`docs/*.md` at `9f8cd102`) and 38 saved queries.
 
