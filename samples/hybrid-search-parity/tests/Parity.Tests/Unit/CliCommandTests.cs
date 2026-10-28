@@ -18,7 +18,7 @@ public sealed class CliCommandTests : IDisposable
     {
         Directory.CreateDirectory(Path.Combine(_root, "inputs"));
         File.WriteAllText(Path.Combine(_root, "appsettings.json"), """
-            { "Profiles": { "a": { "Provider": "InMemory", "ConnectionString": "x" }, "b": { "Provider": "InMemory", "ConnectionString": "x" } },
+            { "Profiles": { "a": { "Provider": "InMemory", "ConnectionString": "x" }, "b": { "Provider": "InMemory", "ConnectionString": "y" } },
               "Parity": { "Baseline": "a", "Candidate": "b" } }
             """);
         File.WriteAllText(Path.Combine(_root, DataStore.EdgeCasesFile), "[]");
@@ -150,6 +150,19 @@ public sealed class CliCommandTests : IDisposable
         Assert.Equal(ExitCodes.Success, await app.RunAsync(["compare"], CancellationToken.None));
         Assert.Contains("SWITCHABLE", output.ToString());
         Assert.Contains($"c: not available (Profile 'c' has {MiniCorpus.Chunks.Count - 1} of {MiniCorpus.Chunks.Count} rows full-text indexed", output.ToString());
+    }
+
+    [Fact]
+    public async Task CompareRefusesTheSameProfileOrTheSameDatabaseOnBothSides()
+    {
+        var (app, _, error) = App(overrides: new Dictionary<string, string?> { ["Parity:Candidate"] = "a" });
+        await app.RunAsync(["seed", "--all"], CancellationToken.None);
+        Assert.Equal(ExitCodes.ConfigurationOrData, await app.RunAsync(["compare"], CancellationToken.None));
+        Assert.Contains("both 'a'", error.ToString());
+
+        var (sameDb, _, error2) = App(overrides: new Dictionary<string, string?> { ["Profiles:b:ConnectionString"] = "x" });
+        Assert.Equal(ExitCodes.ConfigurationOrData, await sameDb.RunAsync(["compare"], CancellationToken.None));
+        Assert.Contains("are the same database", error2.ToString());
     }
 
     [Fact]

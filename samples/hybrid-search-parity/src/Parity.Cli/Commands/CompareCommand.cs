@@ -28,6 +28,7 @@ public sealed class CompareCommand(
             return await RunLiveAsync(live, settings, data, ct);
         }
 
+        RequireDistinctProfiles(settings);
         await using var baseline = engineFactory(settings, settings.Parity.Baseline);
         await using var candidate = engineFactory(settings, settings.Parity.Candidate);
         var baselineInfo = await EnsureSeededAsync(baseline, data, ct);
@@ -68,6 +69,24 @@ public sealed class CompareCommand(
         }
 
         return verdict.Switchable ? ExitCodes.Success : ExitCodes.NotSwitchable;
+    }
+
+    /// <summary>Comparing an engine with itself would "pass" trivially, so refuse the same profile or the same database.</summary>
+    private static void RequireDistinctProfiles(ParitySettings settings)
+    {
+        var (baseline, candidate) = (settings.Parity.Baseline, settings.Parity.Candidate);
+        if (string.Equals(baseline, candidate, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ParityConfigurationException($"Parity:Baseline and Parity:Candidate are both '{baseline}'. Comparing a profile with itself proves nothing; point them at different profiles.");
+        }
+
+        if (settings.Profiles.TryGetValue(baseline, out var a) && settings.Profiles.TryGetValue(candidate, out var b) &&
+            string.Equals(a.Provider, b.Provider, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(a.ConnectionString.Trim(), b.ConnectionString.Trim(), StringComparison.Ordinal))
+        {
+            throw new ParityConfigurationException(
+                $"Profiles '{baseline}' and '{candidate}' use the same provider ({a.Provider}) and connection string, so they are the same database. Comparing a database with itself proves nothing.");
+        }
     }
 
     private string KnownDifferencesHash()
