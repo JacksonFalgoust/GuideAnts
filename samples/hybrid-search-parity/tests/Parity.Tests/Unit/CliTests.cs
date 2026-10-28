@@ -44,6 +44,12 @@ public sealed class CliTests : IDisposable
         Assert.Equal("parity_english_nostem", settings.Profiles["postgres"].TextSearchConfig);
         Assert.Equal("english", settings.Profiles["postgres-english"].TextSearchConfig);
         Assert.Equal(new[] { "postgres-english" }, settings.Parity.Informational);
+        Assert.Equal("sqlserver", settings.Parity.Baseline);
+        Assert.Equal("postgres", settings.Parity.Candidate);
+        Assert.Equal((5, 0.7, 0.3, 2), (settings.Hybrid.MaxResults, settings.Hybrid.VectorWeight, settings.Hybrid.TextWeight, settings.Hybrid.CandidateMultiplier));
+        Assert.Equal(10, settings.Parity.VectorTopK);
+        Assert.Equal(1e-5, settings.Parity.VectorTolerance);
+        Assert.Equal(1e-6, settings.Parity.TieTolerance);
         Assert.Equal(0.9, settings.Parity.Thresholds.MinMeanTop5Overlap);
         Assert.Equal(0.8, settings.Parity.Thresholds.MinSameTopOneRate);
         // The Testcontainers fixture uses ImageSettings defaults; keep them identical to appsettings.json.
@@ -207,6 +213,46 @@ public sealed class CliTests : IDisposable
     }
 
     [Fact]
+    public async Task HelpExitsZeroAndUnknownCommandExitsTwo()
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+        var app = new CliApp(output, error, _root, includeLocalOverrides: false);
+
+        Assert.Equal(ExitCodes.Success, await app.RunAsync(["--help"], CancellationToken.None));
+        Assert.Contains("generate-data", output.ToString());
+        Assert.Equal(ExitCodes.ConfigurationOrData, await app.RunAsync(["bogus"], CancellationToken.None));
+        Assert.Contains("Unknown command 'bogus'", error.ToString());
+    }
+}
+
+/// <summary>
+/// Sets a process-wide environment variable, so these tests get a collection of their own that xUnit runs
+/// without any other collection in parallel.
+/// </summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class ProcessEnvironmentCollection
+{
+    public const string Name = "process-environment";
+}
+
+[Collection(ProcessEnvironmentCollection.Name)]
+public sealed class ProcessEnvironmentConfigTests : IDisposable
+{
+    private readonly string _root = Path.Combine(Path.GetTempPath(), $"parity-env-{Guid.NewGuid():N}");
+
+    public ProcessEnvironmentConfigTests()
+    {
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(Path.Combine(_root, "appsettings.json"), "{}");
+    }
+
+    public void Dispose() => Directory.Delete(_root, recursive: true);
+
+    private static Func<string, string?> Env(string? openAi, string? openRouter) =>
+        name => name switch { "OPENAI_API_KEY" => openAi, "OPENROUTER_API_KEY" => openRouter, _ => null };
+
+    [Fact]
     public void LocalOverridesAreSkippedWhenIncludeLocalOverridesIsFalse()
     {
         File.WriteAllText(Path.Combine(_root, "appsettings.json"), "{\"OpenAI\":{\"Model\":\"from-appsettings\"}}");
@@ -222,18 +268,5 @@ public sealed class CliTests : IDisposable
         {
             Environment.SetEnvironmentVariable(variable, previous);
         }
-    }
-
-    [Fact]
-    public async Task HelpExitsZeroAndUnknownCommandExitsTwo()
-    {
-        var output = new StringWriter();
-        var error = new StringWriter();
-        var app = new CliApp(output, error, _root, includeLocalOverrides: false);
-
-        Assert.Equal(ExitCodes.Success, await app.RunAsync(["--help"], CancellationToken.None));
-        Assert.Contains("generate-data", output.ToString());
-        Assert.Equal(ExitCodes.ConfigurationOrData, await app.RunAsync(["bogus"], CancellationToken.None));
-        Assert.Contains("Unknown command 'bogus'", error.ToString());
     }
 }
