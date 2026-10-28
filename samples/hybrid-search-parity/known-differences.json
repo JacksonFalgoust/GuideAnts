@@ -449,7 +449,7 @@
       "f598d739-c116-54ee-8770-b9e53bbf7870"
     ],
     "category": "punctuation",
-    "reason": "Postgres's parser drops the `#`, so the phrase \"C#\" becomes the bare letter `c` (matches 120 chunks, 114 of them Postgres-only). Symbol terms like \"C#\" are realistic queries in a .NET product; a custom tokenization/dictionary for Postgres would be the fix. P1 is unaffected in top-5 overlap and #1 (the damage shows in P2 and P3).",
+    "reason": "Postgres's parser drops the `#`, so the phrase \"C#\" becomes the bare letter `c` (it matches 120 chunks table-wide against 10 for SQL Server; the Postgres-only matches are 30 in P1, 65 in P2 and 15 in P3, 110 in total, and P1/N1's 4 are a subset of P1's 30). Symbol terms like \"C#\" are realistic queries in a .NET product; a custom dictionary cannot help, because the default parser drops `#` before dictionaries see the text; the realistic options are a custom text search parser, or normalising terms like C#, C++ and .NET (for example to csharp) in both the indexed text and the query. P1 is unaffected in top-5 overlap and #1 (the damage shows in P2 and P3).",
     "decision": "blocker",
     "reviewedBy": "Claude (on behalf of JacksonFalgoust, who delegated the review)",
     "reviewedOn": "2026-10-27"
@@ -527,7 +527,7 @@
       "f9d0eeb8-b902-52c1-a073-516b75d0489c"
     ],
     "category": "punctuation",
-    "reason": "Postgres's parser drops the `#`, so the phrase \"C#\" becomes the bare letter `c` (matches 120 chunks, 114 of them Postgres-only). Symbol terms like \"C#\" are realistic queries in a .NET product; a custom tokenization/dictionary for Postgres would be the fix. Measured ranking impact is material in P2: top-5 lists fully disjoint (overlap@5 0.00) with a different #1; Postgres's five are permission-table headers \"A | C | R\" with no C# content, SQL Server's are .NET code chunks.",
+    "reason": "Postgres's parser drops the `#`, so the phrase \"C#\" becomes the bare letter `c` (it matches 120 chunks table-wide against 10 for SQL Server; the Postgres-only matches are 30 in P1, 65 in P2 and 15 in P3, 110 in total, and P1/N1's 4 are a subset of P1's 30). Symbol terms like \"C#\" are realistic queries in a .NET product; a custom dictionary cannot help, because the default parser drops `#` before dictionaries see the text; the realistic options are a custom text search parser, or normalising terms like C#, C++ and .NET (for example to csharp) in both the indexed text and the query. Measured ranking impact is material in P2: top-5 lists fully disjoint (overlap@5 0.00) with a different #1; Postgres's five are permission-table headers \"A | C | R\" with no C# content, SQL Server's are .NET code chunks.",
     "decision": "blocker",
     "reviewedBy": "Claude (on behalf of JacksonFalgoust, who delegated the review)",
     "reviewedOn": "2026-10-27"
@@ -555,7 +555,7 @@
       "fe51061a-baa1-56de-9f7a-5b2730b18e47"
     ],
     "category": "punctuation",
-    "reason": "Postgres's parser drops the `#`, so the phrase \"C#\" becomes the bare letter `c` (matches 120 chunks, 114 of them Postgres-only). Symbol terms like \"C#\" are realistic queries in a .NET product; a custom tokenization/dictionary for Postgres would be the fix. Measured ranking impact in P3: different #1 (same five chunks reordered).",
+    "reason": "Postgres's parser drops the `#`, so the phrase \"C#\" becomes the bare letter `c` (it matches 120 chunks table-wide against 10 for SQL Server; the Postgres-only matches are 30 in P1, 65 in P2 and 15 in P3, 110 in total, and P1/N1's 4 are a subset of P1's 30). Symbol terms like \"C#\" are realistic queries in a .NET product; a custom dictionary cannot help, because the default parser drops `#` before dictionaries see the text; the realistic options are a custom text search parser, or normalising terms like C#, C++ and .NET (for example to csharp) in both the indexed text and the query. Measured ranking impact in P3: different #1 (same five chunks reordered).",
     "decision": "blocker",
     "reviewedBy": "Claude (on behalf of JacksonFalgoust, who delegated the review)",
     "reviewedOn": "2026-10-27"
@@ -572,7 +572,7 @@
       "ece091e1-d318-5763-bb50-d338ea13bf54"
     ],
     "category": "punctuation",
-    "reason": "Postgres's parser drops the `#`, so the phrase \"C#\" becomes the bare letter `c` (matches 120 chunks, 114 of them Postgres-only). Symbol terms like \"C#\" are realistic queries in a .NET product; a custom tokenization/dictionary for Postgres would be the fix. P1/N1 is unaffected in top-5 overlap and #1 (the damage shows in P2 and P3).",
+    "reason": "Postgres's parser drops the `#`, so the phrase \"C#\" becomes the bare letter `c` (it matches 120 chunks table-wide against 10 for SQL Server; the Postgres-only matches are 30 in P1, 65 in P2 and 15 in P3, 110 in total, and P1/N1's 4 are a subset of P1's 30). Symbol terms like \"C#\" are realistic queries in a .NET product; a custom dictionary cannot help, because the default parser drops `#` before dictionaries see the text; the realistic options are a custom text search parser, or normalising terms like C#, C++ and .NET (for example to csharp) in both the indexed text and the query. P1/N1 is unaffected in top-5 overlap and #1 (the damage shows in P2 and P3).",
     "decision": "blocker",
     "reviewedBy": "Claude (on behalf of JacksonFalgoust, who delegated the review)",
     "reviewedOn": "2026-10-27"
