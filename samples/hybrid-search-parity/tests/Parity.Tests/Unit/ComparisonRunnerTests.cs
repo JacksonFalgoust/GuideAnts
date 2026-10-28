@@ -195,6 +195,24 @@ public class ComparisonRunnerTests
         Assert.Equal((2, 1, 0.8, 0.0), (summary.ExtraMatches, summary.LostMatches, summary.MeanOverlap, summary.SameTopOneRate));
     }
 
+    [Fact]
+    public void ExtraAndLostCountDistinctChunksAcrossProjectScopesOnly()
+    {
+        PairResult In(string scope, Guid[] baselineOnly, Guid[] candidateOnly) =>
+            new(new QueryRef("Q01", "exact", "x"), scope, VectorParityResult.Passed, new TextDiff(baselineOnly, candidateOnly), null, null, null, null,
+                new HybridPairMetrics(1, true), [], [], []);
+        var a = MiniCorpus.Id("m01");
+        var b = MiniCorpus.Id("m02");
+        var c = MiniCorpus.Id("m03");
+        // P1/N1's chunks are a subset of P1's, and a chunk matched by two queries in P1 counts once.
+        var pairs = new[] { In("P1", [a], [b, c]), In("P1/N1", [a], [b]), In("P2", [a], [b]) };
+        var summary = InformationalSummary.From("x", pairs);
+        Assert.Equal((2, 1), (summary.ExtraMatches, summary.LostMatches));
+        var quirk = InformationalSummary.From("quirk", pairs, withMatchCounts: false);
+        Assert.Null(quirk.ExtraMatches);
+        Assert.Null(quirk.LostMatches);
+    }
+
     [Theory]
     [InlineData("aaa conversation locks expire bbb", "conversation lock", "conversation locks expire")]
     [InlineData("no match at all", "zzz", "no match at all")]

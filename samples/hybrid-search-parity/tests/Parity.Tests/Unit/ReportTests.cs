@@ -25,7 +25,7 @@ public class ReportTests
             context,
             pairs,
             Verdict.Evaluate(pairs, new ThresholdSettings()),
-            new InformationalSummary("Quirk fixed on both engines (not production)", true, null, 1, 0.97, 0.95, 0, 0),
+            new InformationalSummary("Quirk fixed on both engines (not production)", true, null, 1, 0.97, 0.95, null, null),
             [InformationalSummary.Unavailable("postgres-english", "Profile 'postgres-english' isn't seeded.")],
             [],
             new Dictionary<Guid, string> { [Id("a")] = "docs/a.md#0", [Id("b")] = "inputs/edge-cases.json#E01" });
@@ -220,6 +220,15 @@ public class ReportTests
         Assert.Contains("mystery", markdown);
         Assert.Contains("Q07 · P1  vector  FAIL  score drift 0.5", console);
         Assert.Contains("Q07 · P1  hybrid  unexplained", console);
+    }
+
+    [Fact]
+    public void TheQuirkFixedRowShowsNoExtraOrLostMatches()
+    {
+        var report = Report(false, Clean());
+        var markdown = MarkdownReport.Render(report);
+        Assert.Contains("| Quirk fixed on both engines (not production) | 1 | 0.970 | 95.0% | – | – |", markdown);
+        Assert.DoesNotContain("matches", ConsoleSummary.Render(report).Split('\n').Single(l => l.Contains("Quirk fixed")));
     }
 
     [Fact]

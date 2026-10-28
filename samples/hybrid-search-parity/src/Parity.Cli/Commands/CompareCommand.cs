@@ -40,7 +40,7 @@ public sealed class CompareCommand(
 
         output.WriteLine("Informational: quirk fixed on both engines...");
         var quirkPairs = await new ComparisonRunner(baseline, candidate, data, settings, []).RunAsync(ParityScopes.All, ct, filterBeforeTopN: true);
-        var quirk = InformationalSummary.From("Quirk fixed on both engines (not production)", quirkPairs);
+        var quirk = InformationalSummary.From("Quirk fixed on both engines (not production)", quirkPairs, withMatchCounts: false);
 
         var profiles = new List<InformationalSummary>();
         foreach (var name in settings.Parity.Informational)

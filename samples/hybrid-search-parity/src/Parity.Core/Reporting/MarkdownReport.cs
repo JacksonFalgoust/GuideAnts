@@ -143,11 +143,12 @@ public static class MarkdownReport
     private static void Informational(StringBuilder sb, ComparisonReport report)
     {
         sb.AppendLine("## Informational (not part of the verdict)").AppendLine();
+        sb.AppendLine("Extra and lost matches are distinct chunks across scopes P1 to P3 (P1/N1 is a subset of P1). The quirk-fixed run shows none: its text match has no top-N, so they would equal Rule 2's totals.").AppendLine();
         sb.AppendLine("| Run | Pairs | Mean top-5 overlap | Same #1 | Extra matches | Lost matches |").AppendLine("|---|---|---|---|---|---|");
         foreach (var s in report.Profiles.Prepend(report.QuirkFixed))
         {
             sb.AppendLine(s.Available
-                ? string.Create(Inv, $"| {Cell(s.Label)} | {s.PairsCounted} | {s.MeanOverlap:F3} | {s.SameTopOneRate * 100:0.0}% | {s.ExtraMatches} | {s.LostMatches} |")
+                ? string.Create(Inv, $"| {Cell(s.Label)} | {s.PairsCounted} | {s.MeanOverlap:F3} | {s.SameTopOneRate * 100:0.0}% | {(s.ExtraMatches?.ToString(Inv) ?? "–")} | {(s.LostMatches?.ToString(Inv) ?? "–")} |")
                 : $"| {Cell(s.Label)} | not available: {Cell(s.UnavailableReason ?? "")} | | | | |");
         }
 

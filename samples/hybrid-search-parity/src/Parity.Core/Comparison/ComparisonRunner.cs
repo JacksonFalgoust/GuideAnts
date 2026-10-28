@@ -1,4 +1,5 @@
 using Parity.Core.Contracts;
+using Parity.Core.Corpus;
 using Parity.Core.Data;
 using Parity.Core.Model;
 using Parity.Core.Settings;
@@ -12,13 +13,19 @@ public sealed record InformationalSummary(
     int PairsCounted,
     double MeanOverlap,
     double SameTopOneRate,
-    int ExtraMatches,
-    int LostMatches)
+    int? ExtraMatches,
+    int? LostMatches)
 {
-    public static InformationalSummary Unavailable(string label, string reason) => new(label, false, reason, 0, 0, 0, 0, 0);
+    public static InformationalSummary Unavailable(string label, string reason) => new(label, false, reason, 0, 0, 0, null, null);
 
-    public static InformationalSummary From(string label, IReadOnlyList<PairResult> pairs)
+    /// <summary>
+    /// Extra and lost matches count distinct chunk ids across the three project scopes only: P1/N1 is a subset of P1, so
+    /// including it would double-count. Pass <paramref name="withMatchCounts"/> false where they'd just repeat rule 2
+    /// (the quirk-fixed run's text match has no top-N, so its totals equal the verdict run's).
+    /// </summary>
+    public static InformationalSummary From(string label, IReadOnlyList<PairResult> pairs, bool withMatchCounts = true)
     {
+        var projectPairs = pairs.Where(p => ParityScopes.ProjectLabels.Contains(p.Scope)).ToList();
         var counted = pairs.Where(p => p.Hybrid is not null).Select(p => p.Hybrid!).ToList();
         return new InformationalSummary(
             label,
@@ -27,8 +34,8 @@ public sealed record InformationalSummary(
             counted.Count,
             counted.Count == 0 ? 0 : counted.Average(m => m.OverlapAt5),
             counted.Count == 0 ? 0 : counted.Count(m => m.SameTopOne) / (double)counted.Count,
-            pairs.Sum(p => p.Text?.CandidateOnly.Count ?? 0),
-            pairs.Sum(p => p.Text?.BaselineOnly.Count ?? 0));
+            withMatchCounts ? projectPairs.SelectMany(p => p.Text?.CandidateOnly ?? []).Distinct().Count() : null,
+            withMatchCounts ? projectPairs.SelectMany(p => p.Text?.BaselineOnly ?? []).Distinct().Count() : null);
     }
 }
 

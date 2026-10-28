@@ -22,7 +22,7 @@ public static class ConsoleSummary
         foreach (var s in report.Profiles.Prepend(report.QuirkFixed))
         {
             sb.AppendLine(s.Available
-                ? string.Create(Inv, $"  {s.Label}: overlap {s.MeanOverlap:F3}, same #1 {s.SameTopOneRate * 100:0.0}%, +{s.ExtraMatches}/-{s.LostMatches} matches")
+                ? string.Create(Inv, $"  {s.Label}: overlap {s.MeanOverlap:F3}, same #1 {s.SameTopOneRate * 100:0.0}%{(s.ExtraMatches is { } extra ? $", +{extra}/-{s.LostMatches} matches" : "")}")
                 : $"  {s.Label}: not available ({s.UnavailableReason})");
         }
 
