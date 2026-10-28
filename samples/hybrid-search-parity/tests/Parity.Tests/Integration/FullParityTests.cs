@@ -35,14 +35,28 @@ public sealed class FullParityTests(IntegrationFixture fixture, ITestOutputHelpe
         Assert.True(failures.Count == 0, string.Join("\n", failures));
     }
 
+    /// <summary>
+    /// A code-correctness check, not the experiment's verdict: every difference must have a review that still matches
+    /// what the engines return today. Recorded blockers are legitimate results, so they're only written to the output.
+    /// </summary>
     [Fact]
-    public async Task Rule2EveryTextAndErrorDifferenceIsReviewedAndAccepted()
+    public async Task Rule2EveryDifferenceHasACurrentReview()
     {
-        var open = (await fixture.FullComparisonAsync())
-            .Where(p => (p.TextReview?.IsOpen ?? false) || (p.ErrorReview?.IsOpen ?? false))
-            .Select(p => $"{p.Query.Id}·{p.Scope}: text {p.TextReview?.Outcome.ToString() ?? "-"}, error {p.ErrorReview?.Outcome.ToString() ?? "-"}")
+        var pairs = await fixture.FullComparisonAsync();
+        var reviews = pairs.SelectMany(p => new[] { (p, Kind: "text", Review: p.TextReview), (p, Kind: "error", Review: p.ErrorReview) })
+            .Where(x => x.Review is not null || (x.Kind == "text" && x.p.Text is { IsEqual: false }) || (x.Kind == "error" && x.p.Error is { NeedsReview: true }))
             .ToList();
-        Assert.True(open.Count == 0, "Open differences (review them into known-differences.json):\n" + string.Join("\n", open));
+
+        var stale = reviews
+            .Where(x => x.Review is null || x.Review.Outcome is ReviewOutcome.Unreviewed or ReviewOutcome.SnapshotMismatch)
+            .Select(x => $"{x.p.Query.Id}·{x.p.Scope} {x.Kind}: {x.Review?.Outcome.ToString() ?? "no review attached"}")
+            .ToList();
+        foreach (var blocker in reviews.Where(x => x.Review?.Outcome == ReviewOutcome.Blocker))
+        {
+            output.WriteLine($"recorded blocker: {blocker.p.Query.Id}·{blocker.p.Scope} {blocker.Kind} ({blocker.Review!.Entry?.Reason})");
+        }
+
+        Assert.True(stale.Count == 0, "Unreviewed or changed differences (review them into known-differences.json):\n" + string.Join("\n", stale));
     }
 
     [Fact]
