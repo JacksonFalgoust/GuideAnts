@@ -52,10 +52,11 @@ public sealed class CompareCommand(
         var verdict = Verdict.Evaluate(pairs, settings.Parity.Thresholds);
         var git = await probe.GitStateAsync(sampleRoot, ct);
         var context = new RunContext(
-            DateTimeOffset.UtcNow, git.Commit, git.AppSettingsModified, baseline.Profile, candidate.Profile, baselineInfo, candidateInfo,
+            DateTimeOffset.UtcNow, git.Commit, git.SampleDirty, baseline.Profile, candidate.Profile, baselineInfo, candidateInfo,
             data.Manifest, settings.Parity.Thresholds, settings.Parity.VectorTolerance, settings.Parity.TieTolerance,
             settings.Images.SqlServer, await probe.ImageDigestAsync(settings.Images.SqlServer, ct),
-            settings.Images.Postgres, await probe.ImageDigestAsync(settings.Images.Postgres, ct));
+            settings.Images.Postgres, await probe.ImageDigestAsync(settings.Images.Postgres, ct),
+            KnownDifferencesHash(), SettingsDrift.Differences(AppConfig.Load(sampleRoot, includeLocalOverrides: false, environment: _ => null), settings));
         var labels = data.Chunks.ToDictionary(c => c.Id, c => c.Kind == ChunkKind.Edge ? c.SourcePath : $"{c.SourcePath}#{c.ChunkIndex}");
         var report = new ComparisonReport(context, pairs, verdict, quirk, profiles, KnownDifferences.FindStale(known, pairs), labels);
 
@@ -67,6 +68,12 @@ public sealed class CompareCommand(
         }
 
         return verdict.Switchable ? ExitCodes.Success : ExitCodes.NotSwitchable;
+    }
+
+    private string KnownDifferencesHash()
+    {
+        var path = Path.Combine(sampleRoot, KnownDifferencesFile);
+        return File.Exists(path) ? Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant() : "absent";
     }
 
     private async Task<InformationalSummary> InformationalProfileAsync(string name, SearchEngine baseline, DataSet data, ParitySettings settings, CancellationToken ct)

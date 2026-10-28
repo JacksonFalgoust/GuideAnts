@@ -52,6 +52,62 @@ public sealed class CliTests : IDisposable
     }
 
     [Fact]
+    public void SettingsDriftListsOnlyTheDecisiveValuesThatChanged()
+    {
+        var committed = AppConfig.Load(RepoPaths.FindSampleRoot(), environment: _ => null, includeLocalOverrides: false);
+        var effective = AppConfig.Load(RepoPaths.FindSampleRoot(), environment: _ => null, includeLocalOverrides: false);
+        Assert.Empty(Parity.Core.Reporting.SettingsDrift.Differences(committed, effective));
+
+        effective.Parity.Candidate = "postgres-english";
+        effective.Parity.VectorTopK = 20;
+        effective.Parity.Thresholds.MinSameTopOneRate = 0.5;
+        effective.Hybrid.CandidateMultiplier = 3;
+        effective.OpenAI.Model = "unrelated";
+        var differences = Parity.Core.Reporting.SettingsDrift.Differences(committed, effective);
+        Assert.Equal(
+            ["Parity:Candidate: committed postgres, effective postgres-english", "Parity:VectorTopK: committed 10, effective 20",
+             "Parity:Thresholds:MinSameTopOneRate: committed 0.8, effective 0.5", "Hybrid:CandidateMultiplier: committed 2, effective 3"],
+            differences);
+    }
+
+    [Fact]
+    public async Task GitStateIgnoresResultsMdButNotOtherSampleChanges()
+    {
+        var repo = Path.Combine(_root, "repo");
+        var sample = Path.Combine(repo, "sample");
+        Directory.CreateDirectory(sample);
+        File.WriteAllText(Path.Combine(sample, "appsettings.json"), "{}");
+        File.WriteAllText(Path.Combine(sample, "RESULTS.md"), "old");
+        File.WriteAllText(Path.Combine(repo, "outside.txt"), "x");
+        void Git(params string[] args)
+        {
+            var start = new System.Diagnostics.ProcessStartInfo("git") { WorkingDirectory = repo, RedirectStandardOutput = true, RedirectStandardError = true };
+            foreach (var a in new[] { "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false" }.Concat(args))
+            {
+                start.ArgumentList.Add(a);
+            }
+
+            using var process = System.Diagnostics.Process.Start(start)!;
+            process.StandardOutput.ReadToEnd();
+            process.WaitForExit();
+            Assert.Equal(0, process.ExitCode);
+        }
+
+        Git("init", "-q");
+        Git("add", ".");
+        Git("commit", "-q", "-m", "init");
+        var probe = new ProcessEnvironmentProbe();
+        Assert.False((await probe.GitStateAsync(sample, CancellationToken.None)).SampleDirty);
+
+        File.WriteAllText(Path.Combine(sample, "RESULTS.md"), "regenerated");
+        File.WriteAllText(Path.Combine(repo, "outside.txt"), "changed");
+        Assert.False((await probe.GitStateAsync(sample, CancellationToken.None)).SampleDirty);
+
+        File.WriteAllText(Path.Combine(sample, "known-differences.json"), "[]");
+        Assert.True((await probe.GitStateAsync(sample, CancellationToken.None)).SampleDirty);
+    }
+
+    [Fact]
     public void OpenAiKeyFallsBackToTheEnvironment()
     {
         var settings = AppConfig.Load(_root, new Dictionary<string, string?> { ["OpenAI:ApiKey"] = "" }, name => name == "OPENAI_API_KEY" ? "sk-env" : null, includeLocalOverrides: false);

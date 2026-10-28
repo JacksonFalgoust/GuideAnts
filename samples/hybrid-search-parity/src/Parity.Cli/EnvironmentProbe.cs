@@ -3,7 +3,8 @@ using System.Diagnostics;
 
 namespace Parity.Cli;
 
-public sealed record GitState(string Commit, bool AppSettingsModified);
+/// <summary>SampleDirty: any uncommitted change under the sample directory except RESULTS.md (which compare itself rewrites).</summary>
+public sealed record GitState(string Commit, bool SampleDirty);
 
 public interface IEnvironmentProbe
 {
@@ -21,10 +22,12 @@ public sealed class ProcessEnvironmentProbe(string dockerExecutable = "docker", 
         return ok && !string.IsNullOrWhiteSpace(output) ? output.Trim() : "unknown (docker image inspect failed)";
     }
 
+    internal static readonly string[] GitStatusArguments = ["status", "--porcelain", "--", ".", ":!RESULTS.md"];
+
     public async Task<GitState> GitStateAsync(string sampleRoot, CancellationToken ct)
     {
         var (commitOk, commit) = await RunAsync(gitExecutable, ["rev-parse", "--short=8", "HEAD"], sampleRoot, ct);
-        var (statusOk, status) = await RunAsync(gitExecutable, ["status", "--porcelain", "--", "appsettings.json"], sampleRoot, ct);
+        var (statusOk, status) = await RunAsync(gitExecutable, GitStatusArguments, sampleRoot, ct);
         return new GitState(commitOk ? commit.Trim() : "unknown", statusOk && !string.IsNullOrWhiteSpace(status));
     }
 

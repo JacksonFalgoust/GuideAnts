@@ -11,16 +11,20 @@ public class ReportTests
 {
     private static readonly ReviewStatus Unreviewed = new(ReviewOutcome.Unreviewed, null);
 
-    private static ComparisonReport Report(bool appSettingsModified = false, params PairResult[] pairs)
+    private static ComparisonReport Report(bool sampleDirty = false, params PairResult[] pairs) =>
+        Report(sampleDirty, [], pairs);
+
+    private static ComparisonReport Report(bool sampleDirty, string[] settingsDifferences, params PairResult[] pairs)
     {
         var context = new RunContext(
-            DateTimeOffset.Parse("2026-10-21T09:30:00Z"), "abcd1234", appSettingsModified, "sqlserver", "postgres",
+            DateTimeOffset.Parse("2026-10-21T09:30:00Z"), "abcd1234", sampleDirty, "sqlserver", "postgres",
             new EngineInfo("SqlServer", "Microsoft SQL Server 2025 (RTM)", new Dictionary<string, string> { ["fullTextLanguage"] = "1033" }),
             new EngineInfo("Postgres", "PostgreSQL 18.1", new Dictionary<string, string> { ["pgvector"] = "0.8.7" }),
             new Manifest("9f8cd102aaaa", DateTimeOffset.Parse("2026-10-20T00:00:00Z"), "text-embedding-3-small", 1536, 1190, 38,
-                new Dictionary<string, string>(), new Dictionary<string, string>()),
+                new Dictionary<string, string> { ["data/chunks.jsonl"] = "aa11", ["inputs/queries.json"] = "bb22" }, new Dictionary<string, string>()),
             new ThresholdSettings(), 1e-5, 1e-6,
-            "ghcr.io/elumenotion/mssql2025-express-fts:main", "[\"ghcr.io/x@sha256:abc\"]", "pgvector/pgvector:0.8.7-pg18", "unknown (docker image inspect failed)");
+            "ghcr.io/elumenotion/mssql2025-express-fts:main", "[\"ghcr.io/x@sha256:abc\"]", "pgvector/pgvector:0.8.7-pg18", "unknown (docker image inspect failed)",
+            "feedbeef", settingsDifferences);
         return new ComparisonReport(
             context,
             pairs,
@@ -70,8 +74,41 @@ public class ReportTests
     }
 
     [Fact]
-    public void ModifiedThresholdsAreFlagged() =>
-        Assert.Contains("`appsettings.json` has uncommitted changes", MarkdownReport.Render(Report(true, Clean())));
+    public void ADirtySampleIsFlagged() =>
+        Assert.Contains("the sample directory has uncommitted changes (other than RESULTS.md)", MarkdownReport.Render(Report(true, Clean())));
+
+    [Fact]
+    public void TheEnvironmentPrintsTheReviewFileAndDataFileHashes()
+    {
+        var markdown = MarkdownReport.Render(Report(false, Clean()));
+        Assert.Contains("known-differences.json: SHA-256 `feedbeef`", markdown);
+        Assert.Contains("`data/chunks.jsonl`: `aa11`", markdown);
+        Assert.Contains("`inputs/queries.json`: `bb22`", markdown);
+    }
+
+    [Fact]
+    public void SettingsThatDifferFromTheCommittedOnesAreListed()
+    {
+        var markdown = MarkdownReport.Render(Report(false, ["Parity:VectorTopK: committed 10, effective 20"], Clean()));
+        Assert.Contains("the effective settings differ from the committed `appsettings.json`", markdown);
+        Assert.Contains("> - Parity:VectorTopK: committed 10, effective 20", markdown);
+        Assert.DoesNotContain("effective settings differ", MarkdownReport.Render(Report(false, Clean())));
+    }
+
+    [Fact]
+    public void ReviewedByIsShownInRuleTwoAndTheErrorsTable()
+    {
+        var textEntry = new KnownDifference("Q19", "P2", "text-match", [], [], null, null, "tokenization", "hyphens", "acceptable", "Claude (delegated)", "2026-10-27");
+        var errorEntry = new KnownDifference("Q36", "P1", "error", null, null, "candidate", "PG42601", "error-handling", "punctuation", "acceptable", "A. Human", null);
+        var text = WithTextDiff() with { TextReview = new ReviewStatus(ReviewOutcome.Acceptable, textEntry) };
+        var error = WithError() with { ErrorReview = new ReviewStatus(ReviewOutcome.Acceptable, errorEntry) };
+        var markdown = MarkdownReport.Render(Report(false, text, error));
+        Assert.Contains("[reviewed by Claude (delegated) on 2026-10-27]", markdown);
+        Assert.Contains("| acceptable [reviewed by A. Human] |", markdown);
+
+        var unsigned = textEntry with { ReviewedBy = null, ReviewedOn = null };
+        Assert.Contains("[reviewer not recorded]", MarkdownReport.Render(Report(false, text with { TextReview = new ReviewStatus(ReviewOutcome.Acceptable, unsigned) })));
+    }
 
     [Fact]
     public void TextDifferencesShowStatusChunksTokensAndSnippets()

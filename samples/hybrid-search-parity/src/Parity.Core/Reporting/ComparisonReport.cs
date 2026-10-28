@@ -8,7 +8,7 @@ namespace Parity.Core.Reporting;
 public sealed record RunContext(
     DateTimeOffset RunAtUtc,
     string SampleCommit,
-    bool AppSettingsModified,
+    bool SampleDirty,
     string BaselineProfile,
     string CandidateProfile,
     EngineInfo BaselineInfo,
@@ -20,7 +20,9 @@ public sealed record RunContext(
     string SqlServerImage,
     string SqlServerImageDigest,
     string PostgresImage,
-    string PostgresImageDigest);
+    string PostgresImageDigest,
+    string KnownDifferencesSha256,
+    IReadOnlyList<string> SettingsDifferences);
 
 public sealed record ComparisonReport(
     RunContext Context,

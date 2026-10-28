@@ -77,6 +77,18 @@ public sealed class CliCommandTests : IDisposable
         Assert.Equal(ExitCodes.Success, await app.RunAsync(["compare", "--out", outPath], CancellationToken.None));
         Assert.Contains("**Verdict: SWITCHABLE**", File.ReadAllText(outPath));
         Assert.Contains("Hybrid search parity: SWITCHABLE", output.ToString());
+        Assert.Contains("known-differences.json: SHA-256 `absent`", File.ReadAllText(outPath));
+        Assert.DoesNotContain("effective settings differ", File.ReadAllText(outPath));
+    }
+
+    [Fact]
+    public async Task CompareWarnsWhenTheEffectiveSettingsDifferFromAppsettings()
+    {
+        var (app, _, _) = App(overrides: new Dictionary<string, string?> { ["Parity:VectorTopK"] = "5" });
+        await app.RunAsync(["seed", "--all"], CancellationToken.None);
+        var outPath = Path.Combine(_root, "RESULTS.md");
+        await app.RunAsync(["compare", "--out", outPath], CancellationToken.None);
+        Assert.Contains("> - Parity:VectorTopK: committed 10, effective 5", File.ReadAllText(outPath));
     }
 
     [Fact]

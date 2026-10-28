@@ -19,9 +19,20 @@ public static class MarkdownReport
         sb.AppendLine(string.Create(Inv,
             $"**Verdict: {(report.Verdict.Switchable ? "SWITCHABLE" : "NOT SWITCHABLE")}**. `{c.BaselineProfile}` (baseline) vs `{c.CandidateProfile}` (candidate), {report.Pairs.Count} query/scope pairs, run {c.RunAtUtc:yyyy-MM-dd HH:mm} UTC."));
         sb.AppendLine();
-        if (c.AppSettingsModified)
+        if (c.SampleDirty)
         {
-            sb.AppendLine("> **Warning:** `appsettings.json` has uncommitted changes, so the thresholds below may differ from the committed ones.").AppendLine();
+            sb.AppendLine("> **Warning:** the sample directory has uncommitted changes (other than RESULTS.md), so this run may not be reproducible from the commit below.").AppendLine();
+        }
+
+        if (c.SettingsDifferences.Count > 0)
+        {
+            sb.AppendLine("> **Warning:** the effective settings differ from the committed `appsettings.json`, so the thresholds and tolerances below may not be the pre-registered ones:");
+            foreach (var difference in c.SettingsDifferences)
+            {
+                sb.AppendLine($"> - {Md(difference)}");
+            }
+
+            sb.AppendLine();
         }
 
         sb.AppendLine("| Condition | Result | Value |").AppendLine("|---|---|---|");
@@ -45,7 +56,14 @@ public static class MarkdownReport
     {
         var m = c.Manifest;
         sb.AppendLine("## Environment").AppendLine();
-        sb.AppendLine($"- Sample commit: `{c.SampleCommit}`{(c.AppSettingsModified ? " (appsettings.json modified)" : "")}");
+        sb.AppendLine($"- Sample commit: `{c.SampleCommit}`{(c.SampleDirty ? " (sample directory has uncommitted changes)" : "")}");
+        sb.AppendLine($"- known-differences.json: SHA-256 `{c.KnownDifferencesSha256}`");
+        sb.AppendLine("- Data files (SHA-256 from data/manifest.json):");
+        foreach (var (file, hash) in m.Files.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+        {
+            sb.AppendLine($"  - {Code(file)}: `{hash}`");
+        }
+
         sb.AppendLine(string.Create(Inv, $"- Data: corpus `{m.CorpusCommit[..Math.Min(8, m.CorpusCommit.Length)]}`, model `{m.Model}`, {m.ChunkCount} chunks, {m.QueryCount} queries, generated {m.GeneratedUtc:yyyy-MM-dd}"));
         sb.AppendLine(string.Create(Inv,
             $"- Thresholds: mean top-5 overlap ≥ {c.Thresholds.MinMeanTop5Overlap}, same #1 ≥ {c.Thresholds.MinSameTopOneRate * 100:0}%; vector tolerance {c.VectorTolerance:0.#####E0}, tie tolerance {c.TieTolerance:0.#####E0}"));
@@ -85,7 +103,7 @@ public static class MarkdownReport
         {
             var review = p.TextReview;
             sb.AppendLine($"### `{p.Query.Id}` · {p.Scope}: \"{Md(p.Query.Text)}\"").AppendLine();
-            sb.AppendLine($"Status: **{ComparisonReport.Status(review)}**{(review?.Entry is { } e ? $" ({Md(e.Category)}: {Md(e.Reason)})" : "")}").AppendLine();
+            sb.AppendLine($"Status: **{ComparisonReport.Status(review)}**{(review?.Entry is { } e ? $" ({Md(e.Category)}: {Md(e.Reason)}){ReviewedBy(e)}" : "")}").AppendLine();
             if (p.Text is null)
             {
                 sb.AppendLine("- (no diff recorded)");
@@ -173,7 +191,7 @@ public static class MarkdownReport
                 continue;
             }
 
-            sb.AppendLine($"| `{p.Query.Id}` | {p.Scope} | {e.Side} | {Cell(Describe(e.Baseline))} | {Cell(Describe(e.Candidate))} | {(e.NeedsReview ? ComparisonReport.Status(p.ErrorReview) : "no review needed (both hybrid calls failed: empty results on both engines)")} |");
+            sb.AppendLine($"| `{p.Query.Id}` | {p.Scope} | {e.Side} | {Cell(Describe(e.Baseline))} | {Cell(Describe(e.Candidate))} | {(e.NeedsReview ? ComparisonReport.Status(p.ErrorReview) + (p.ErrorReview?.Entry is { } entry ? ReviewedBy(entry) : "") : "no review needed (both hybrid calls failed: empty results on both engines)")} |");
         }
 
         sb.AppendLine();
@@ -195,6 +213,9 @@ public static class MarkdownReport
 
         sb.AppendLine();
     }
+
+    private static string ReviewedBy(KnownDifference entry) =>
+        string.IsNullOrWhiteSpace(entry.ReviewedBy) ? " [reviewer not recorded]" : $" [reviewed by {Md(entry.ReviewedBy)}{(string.IsNullOrWhiteSpace(entry.ReviewedOn) ? "" : $" on {Md(entry.ReviewedOn)}")}]";
 
     private static string Describe(EngineError? error) => error is null ? "ok" : $"{error.Code}: {error.Message}";
 
