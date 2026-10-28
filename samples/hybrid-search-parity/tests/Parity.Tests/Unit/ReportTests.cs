@@ -74,6 +74,21 @@ public class ReportTests
     }
 
     [Fact]
+    public void TheLimitsSectionStatesTheDelegatedReviewAndTheKnownMisses()
+    {
+        var tie = Clean() with { Differences = [new RankDifference(Id("a"), 1, 2, DifferenceCategory.TopNBoundaryTie, "tie")] };
+        var markdown = MarkdownReport.Render(Report(false, tie));
+        Assert.Contains("## Limits", markdown);
+        Assert.Contains("delegated them to Claude", markdown);
+        Assert.Contains("none was reviewed line by line by a human", markdown);
+        Assert.Contains("Q09", markdown);
+        Assert.Contains("Q25", markdown);
+        Assert.Contains("1 hybrid differences are explained as `top-n-boundary-tie`", markdown);
+        Assert.Contains("stoplist and Postgres's `english` list", markdown);
+        Assert.Contains("a single corpus (`docs/*.md` at `9f8cd102`) and 38 saved queries", markdown);
+    }
+
+    [Fact]
     public void ADirtySampleIsFlagged() =>
         Assert.Contains("the sample directory has uncommitted changes (other than RESULTS.md)", MarkdownReport.Render(Report(true, Clean())));
 

@@ -49,6 +49,7 @@ public static class MarkdownReport
         Informational(sb, report);
         Errors(sb, report);
         Stale(sb, report);
+        Limits(sb, report);
         return sb.ToString();
     }
 
@@ -216,6 +217,20 @@ public static class MarkdownReport
 
     private static string ReviewedBy(KnownDifference entry) =>
         string.IsNullOrWhiteSpace(entry.ReviewedBy) ? " [reviewer not recorded]" : $" [reviewed by {Md(entry.ReviewedBy)}{(string.IsNullOrWhiteSpace(entry.ReviewedOn) ? "" : $" on {Md(entry.ReviewedOn)}")}]";
+
+    private static void Limits(StringBuilder sb, ComparisonReport report)
+    {
+        var m = report.Context.Manifest;
+        var reviewed = report.Pairs.Count(p => p.TextReview?.Entry is not null) + report.Pairs.Count(p => p.ErrorReview?.Entry is not null);
+        var ties = report.Pairs.SelectMany(p => p.Differences).Count(d => d.Category == DifferenceCategory.TopNBoundaryTie);
+        sb.AppendLine("## Limits").AppendLine();
+        sb.AppendLine($"- **Review.** {reviewed} difference reviews in this run came from `known-differences.json`. In the committed file the user delegated them to Claude (\"do whatever you think is best\") and none was reviewed line by line by a human; each entry's `reviewedBy` says so. Edit the file and re-run `compare` to change a decision.");
+        sb.AppendLine("- **Real recall misses were accepted.** Two accepted Postgres differences lose true matches: Q09 (one real prose occurrence, \"GuideAnts guide/internal tools\", is missed because Postgres lexes `guide/internal` as one token) and Q25 (a URL-prefix search finds nothing, because Postgres keeps the longer URL as one token).");
+        sb.AppendLine($"- **Tie-break explanations.** {ties} hybrid differences are explained as `top-n-boundary-tie`. They come from diagnostics whose tie-breaking among equal text ranks is unspecified, the same nondeterminism as production's own query.");
+        sb.AppendLine("- **Stop lists differ.** SQL Server's system stoplist and Postgres's `english` list are not the same (for example single letters, digits, `not` and `use`). The token evidence above shows it where it matters.");
+        sb.AppendLine(string.Create(Inv, $"- **One corpus.** The evidence is a single corpus (`docs/*.md` at `{m.CorpusCommit[..Math.Min(8, m.CorpusCommit.Length)]}`) and {m.QueryCount} saved queries."));
+        sb.AppendLine();
+    }
 
     private static string Describe(EngineError? error) => error is null ? "ok" : $"{error.Code}: {error.Message}";
 
