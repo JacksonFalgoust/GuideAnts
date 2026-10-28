@@ -200,6 +200,18 @@ public sealed class VerdictTests : IDisposable
     }
 
     [Fact]
+    public void TheReviewConditionSplitsOpenItemsByOutcome()
+    {
+        var blocker = Pair(query: "Q33", text: new TextDiff([], [Id("a")]), textReview: new ReviewStatus(ReviewOutcome.Blocker, null));
+        var mismatch = Pair(query: "Q34", text: new TextDiff([], [Id("b")]), textReview: new ReviewStatus(ReviewOutcome.SnapshotMismatch, null));
+        var unreviewed = Pair(query: "Q35", text: new TextDiff([], [Id("c")]), textReview: null);
+        var verdict = Verdict.Evaluate([blocker, blocker, mismatch, unreviewed], new ThresholdSettings());
+        Assert.False(verdict.Conditions[1].Pass);
+        Assert.Equal("1 unreviewed, 1 snapshot-changed, 2 blocker", verdict.Conditions[1].Value);
+        Assert.Equal("0 unreviewed, 0 snapshot-changed, 0 blocker", Verdict.Evaluate([Pair()], new ThresholdSettings()).Conditions[1].Value);
+    }
+
+    [Fact]
     public void StaleEntriesAreThoseWithNoMatchingDifference()
     {
         var entries = KnownDifferences.Load(WriteKnown(Entry("acceptable", Id("a"))));

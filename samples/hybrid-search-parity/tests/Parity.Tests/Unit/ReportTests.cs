@@ -118,7 +118,7 @@ public class ReportTests
     public void ConsoleListsEveryPairTheVerdictCountsAsOpenEvenWithNullReviews()
     {
         var report = Report(false, TextDiffNullReview(), ErrorNullReview());
-        Assert.Contains("2 open", report.Verdict.Conditions[1].Value);
+        Assert.Equal("2 unreviewed, 0 snapshot-changed, 0 blocker", report.Verdict.Conditions[1].Value);
         var text = ConsoleSummary.Render(report);
         Assert.Contains("Q19 · P2  full-text  UNREVIEWED", text);
         Assert.Contains("Q36 · P1  error  UNREVIEWED", text);
