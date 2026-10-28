@@ -60,6 +60,16 @@ public class OpenAiEmbeddingClientTests
     }
 
     [Fact]
+    public async Task CapsAHugeRetryAfterAtSixtySeconds()
+    {
+        var handler = new FakeHttpHandler(call => call == 1
+            ? FakeHttpHandler.Status(HttpStatusCode.TooManyRequests, retryAfter: TimeSpan.FromHours(3))
+            : FakeHttpHandler.Embeddings(1));
+        await Client(handler).EmbedAsync(["a"], CancellationToken.None);
+        Assert.Equal(new[] { TimeSpan.FromSeconds(60) }, _delays);
+    }
+
+    [Fact]
     public async Task RetriesServerErrorsWithExponentialBackoff()
     {
         var handler = new FakeHttpHandler(call => call <= 2 ? FakeHttpHandler.Status(HttpStatusCode.BadGateway) : FakeHttpHandler.Embeddings(1));

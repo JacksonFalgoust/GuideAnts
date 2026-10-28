@@ -20,6 +20,7 @@ public sealed class OpenAiEmbeddingClient : IEmbeddingClient
 {
     public const int BatchSize = 100;
     public const int MaxAttempts = 6;
+    public static readonly TimeSpan MaxRetryWait = TimeSpan.FromSeconds(60);
 
     private static readonly JsonSerializerOptions ResponseOptions = new() { PropertyNameCaseInsensitive = true };
     private readonly HttpClient _http;
@@ -88,7 +89,7 @@ public sealed class OpenAiEmbeddingClient : IEmbeddingClient
             }
 
             var wait = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(Math.Pow(2, attempt - 1));
-            await _delay(wait, ct);
+            await _delay(wait > MaxRetryWait ? MaxRetryWait : wait, ct); // a server must not be able to park the tool for hours
         }
     }
 
