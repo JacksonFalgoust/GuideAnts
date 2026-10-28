@@ -41,6 +41,15 @@ public class ComparisonPrimitivesTests
     }
 
     [Fact]
+    public void ANonLastTieGroupHitWhoseScoreDriftsFailsWithThePerChunkScoreMessage()
+    {
+        // Same order and membership; only the first hit's score differs, by more than the tolerance.
+        var result = VectorParity.Compare([Vec("a", 0.9), Vec("b", 0.5)], [Vec("a", 0.9 + 2e-5), Vec("b", 0.5)], Tol, Tie);
+        Assert.False(result.Pass);
+        Assert.StartsWith($"chunk {Id("a").ToString()[..8]}: score", result.Failure);
+    }
+
+    [Fact]
     public void ScoresWithinToleranceAcrossEnginesPass() =>
         Assert.True(VectorParity.Compare([Vec("a", 0.9)], [Vec("a", 0.9 + 4e-6)], Tol, Tie).Pass);
 
