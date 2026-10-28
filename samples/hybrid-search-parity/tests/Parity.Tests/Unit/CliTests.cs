@@ -148,17 +148,55 @@ public sealed class CliTests : IDisposable
     }
 
     [Fact]
-    public void ExplicitEndpointAndModelSurviveAnOpenRouterKey()
+    public void ExplicitModelSurvivesAnOpenRouterKey()
     {
-        var overrides = new Dictionary<string, string?>
-        {
-            ["OpenAI:Endpoint"] = "https://proxy.example/v1",
-            ["OpenAI:Model"] = "custom-model",
-        };
+        var overrides = new Dictionary<string, string?> { ["OpenAI:Model"] = "custom-model" };
         var settings = AppConfig.Load(_root, overrides, Env(null, "or-env"), includeLocalOverrides: false);
         Assert.Equal("or-env", settings.OpenAI.ApiKey);
-        Assert.Equal("https://proxy.example/v1", settings.OpenAI.Endpoint);
+        Assert.Equal(OpenRouterEndpoint, settings.OpenAI.Endpoint);
         Assert.Equal("custom-model", settings.OpenAI.Model);
+    }
+
+    private static Dictionary<string, string?> Endpoint(string endpoint) => new() { ["OpenAI:Endpoint"] = endpoint };
+
+    [Fact]
+    public void AnOpenAiKeyIsNeverSentToAnotherEndpoint()
+    {
+        var toOpenRouter = Assert.Throws<ParityConfigurationException>(() => AppConfig.Load(_root, Endpoint(OpenRouterEndpoint), Env("sk-secret", null), includeLocalOverrides: false));
+        Assert.Contains("OPENAI_API_KEY would be sent to 'openrouter.ai'", toOpenRouter.Message);
+        Assert.Contains("OpenAI:ApiKey", toOpenRouter.Message);
+        Assert.DoesNotContain("sk-secret", toOpenRouter.Message);
+
+        var toProxy = Assert.Throws<ParityConfigurationException>(() => AppConfig.Load(_root, Endpoint("https://proxy.example/v1"), Env("sk-secret", null), includeLocalOverrides: false));
+        Assert.Contains("'proxy.example'", toProxy.Message);
+    }
+
+    [Fact]
+    public void AnOpenRouterKeyIsNeverSentToAnotherEndpoint()
+    {
+        Assert.Throws<ParityConfigurationException>(() => AppConfig.Load(_root, Endpoint("https://proxy.example/v1"), Env(null, "or-secret"), includeLocalOverrides: false));
+        Assert.Throws<ParityConfigurationException>(() => AppConfig.Load(_root, Endpoint("https://api.openai.com/v2"), Env(null, "or-secret"), includeLocalOverrides: false));
+    }
+
+    [Fact]
+    public void AnExplicitOpenRouterEndpointTakesTheOpenRouterKeyEvenWhenBothAreSet()
+    {
+        var settings = AppConfig.Load(_root, Endpoint(OpenRouterEndpoint), Env("sk-env", "or-env"), includeLocalOverrides: false);
+        Assert.Equal("or-env", settings.OpenAI.ApiKey);
+        Assert.Equal(OpenRouterEndpoint, settings.OpenAI.Endpoint);
+        Assert.Equal("openai/text-embedding-3-small", settings.OpenAI.Model);
+    }
+
+    [Fact]
+    public void AKeyFromTheConfigurationIsUsedWithAnyHttpsEndpointButNotPlainHttp()
+    {
+        var overrides = new Dictionary<string, string?> { ["OpenAI:ApiKey"] = "cfg-key", ["OpenAI:Endpoint"] = "https://proxy.example/v1" };
+        Assert.Equal("cfg-key", AppConfig.Load(_root, overrides, Env("sk-env", null), includeLocalOverrides: false).OpenAI.ApiKey);
+
+        overrides["OpenAI:Endpoint"] = "http://proxy.example/v1";
+        var error = Assert.Throws<ParityConfigurationException>(() => AppConfig.Load(_root, overrides, Env(null, null), includeLocalOverrides: false));
+        Assert.Contains("must be an https URL", error.Message);
+        Assert.DoesNotContain("cfg-key", error.Message);
     }
 
     [Fact]
