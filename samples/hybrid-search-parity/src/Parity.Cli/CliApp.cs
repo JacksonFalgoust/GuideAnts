@@ -59,6 +59,12 @@ public sealed class CliApp(
             error.WriteLine($"error: {ex.Message}");
             return ExitCodes.ConfigurationOrData;
         }
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            // Not the user's Ctrl+C: an HttpClient timeout (or a database command timeout) surfaces the same way.
+            error.WriteLine($"error: a request timed out ({ex.Message}). Check the endpoint and network, then retry.");
+            return ExitCodes.ConfigurationOrData;
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // Anything else is a bug in the sample: show the whole thing.

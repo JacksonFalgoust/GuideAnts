@@ -173,6 +173,37 @@ public sealed class CliCommandTests : IDisposable
         Assert.Contains("Can't reach profile 'sql' (SqlServer) at 127.0.0.1,1", error.ToString());
     }
 
+    private sealed class TimingOutEmbedder : Parity.Core.Embeddings.IEmbeddingClient
+    {
+        public string Model => "m";
+
+        public Task<float[][]> EmbedAsync(IReadOnlyList<string> inputs, CancellationToken ct) =>
+            throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout of 120 seconds elapsing.", new TimeoutException());
+    }
+
+    [Fact]
+    public async Task AnHttpTimeoutIsReportedAsATimeoutNotAsCancelled()
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+        var app = new CliApp(output, error, _root, embedderFactory: _ => new TimingOutEmbedder(), engineFactory: (_, name) =>
+        {
+            var engine = _engines.TryGetValue(name, out var existing) ? existing : _engines[name] = new InMemoryEngine();
+            return new SearchEngine(name, "InMemory", engine, engine);
+        }, probe: new FixedProbe(), includeLocalOverrides: false);
+        await app.RunAsync(["seed", "--all"], CancellationToken.None);
+
+        Assert.Equal(ExitCodes.ConfigurationOrData, await app.RunAsync(["compare", "--query", "something new"], CancellationToken.None));
+        Assert.Single(error.ToString().TrimEnd().Split('\n'));
+        Assert.Contains("a request timed out", error.ToString());
+        Assert.DoesNotContain("cancelled", error.ToString());
+
+        // The user's own Ctrl+C still propagates as a cancellation.
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => app.RunAsync(["compare", "--query", "something new"], cts.Token));
+    }
+
     [Fact]
     public async Task UnsavedTextNeedsAKey()
     {
