@@ -128,6 +128,28 @@ public class ReportTests
     }
 
     [Fact]
+    public void ABothSidedErrorIsOpenAndAPairWhereBothHybridCallsFailedIsListedWithoutReview()
+    {
+        var sql = new EngineError("SQL7619", "a");
+        var pg = new EngineError("PG42601", "b");
+        var open = WithError() with { Error = new ErrorOutcome(sql, pg, null, pg), ErrorReview = Unreviewed };
+        var quiet = WithError() with { Query = new QueryRef("Q35", "error", "the and of"), Error = new ErrorOutcome(sql, pg, sql, pg), ErrorReview = null };
+        var report = Report(false, open, quiet);
+        Assert.False(report.Verdict.Conditions[1].Pass);
+
+        var markdown = MarkdownReport.Render(report);
+        Assert.Contains("| `Q36` | P1 | both |", markdown);
+        Assert.Contains("| UNREVIEWED |", markdown);
+        Assert.Contains("| `Q35` | P1 | both |", markdown);
+        Assert.Contains("no review needed (both hybrid calls failed", markdown);
+
+        var console = ConsoleSummary.Render(report);
+        Assert.Contains("Q36 · P1  error  UNREVIEWED  (both SQL7619/PG42601)", console);
+        Assert.Contains("Errors needing no review", console);
+        Assert.Contains("Q35 · P1  error  baseline SQL7619, candidate PG42601", console);
+    }
+
+    [Fact]
     public void ErrorPairsThatAlsoCarryATextDiffAppearInRuleTwo()
     {
         var pair = WithError() with { Text = new TextDiff([Id("a")], []), TextReview = Unreviewed };

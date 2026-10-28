@@ -74,10 +74,10 @@ public static class KnownDifferences
         return new ReviewStatus(matches ? Decided(entry) : ReviewOutcome.SnapshotMismatch, entry);
     }
 
-    /// <summary>Null when no review is needed (no error, or both engines failed).</summary>
+    /// <summary>Null when no review is needed: no error, or both engines' hybrid calls failed (identical visible behaviour).</summary>
     public static ReviewStatus? ReviewError(IReadOnlyList<KnownDifference> entries, string queryId, string scope, ErrorOutcome error)
     {
-        if (!error.IsOneSided)
+        if (!error.NeedsReview)
         {
             return null;
         }
@@ -96,7 +96,7 @@ public static class KnownDifferences
     public static IReadOnlyList<KnownDifference> FindStale(IReadOnlyList<KnownDifference> entries, IReadOnlyList<PairResult> pairs) =>
         entries.Where(e => !pairs.Any(p =>
                 p.Query.Id == e.QueryId && p.Scope == e.Scope &&
-                (e.Kind == "text-match" ? p.Text is { IsEqual: false } : p.Error is { IsOneSided: true })))
+                (e.Kind == "text-match" ? p.Text is { IsEqual: false } : p.Error is { NeedsReview: true })))
             .ToList();
 
     private static ReviewOutcome Decided(KnownDifference entry) =>

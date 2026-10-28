@@ -84,7 +84,56 @@ public sealed class VerdictTests : IDisposable
             """));
         Assert.Equal(ReviewOutcome.Acceptable, KnownDifferences.ReviewError(entries, "Q36", "P1", new ErrorOutcome(new EngineError("SQL7619", "x"), null))!.Outcome);
         Assert.Equal(ReviewOutcome.SnapshotMismatch, KnownDifferences.ReviewError(entries, "Q36", "P1", new ErrorOutcome(null, new EngineError("PG42601", "x")))!.Outcome);
-        Assert.Null(KnownDifferences.ReviewError(entries, "Q36", "P1", new ErrorOutcome(new EngineError("a", "x"), new EngineError("b", "y"))));
+        Assert.Null(KnownDifferences.ReviewError(entries, "Q36", "P1", new ErrorOutcome(null, null)));
+    }
+
+    private static readonly EngineError SqlError = new("SQL7619", "x");
+    private static readonly EngineError PgError = new("PG42601", "y");
+
+    [Fact]
+    public void ABothSidedErrorIsOpenWhenTheTextCallFailedOnOneSideAndTheHybridCallOnTheOther()
+    {
+        // Baseline's text match failed (so its hybrid result is unknown to the report), candidate's hybrid failed.
+        var error = new ErrorOutcome(SqlError, PgError, null, PgError);
+        Assert.Equal("both", error.Side);
+        Assert.Equal("SQL7619/PG42601", error.Code);
+        Assert.True(error.NeedsReview);
+
+        var unreviewed = Verdict.Evaluate([Pair(error: error, errorReview: KnownDifferences.ReviewError([], "Q36", "P1", error))], new ThresholdSettings());
+        Assert.False(unreviewed.Conditions[1].Pass);
+        Assert.Equal(ReviewOutcome.Unreviewed, KnownDifferences.ReviewError([], "Q36", "P1", error)!.Outcome);
+    }
+
+    [Fact]
+    public void ABothSidedErrorWhereBothHybridCallsFailedNeedsNoReview()
+    {
+        var error = new ErrorOutcome(SqlError, PgError, SqlError, PgError);
+        Assert.False(error.NeedsReview);
+        Assert.Null(KnownDifferences.ReviewError([], "Q36", "P1", error));
+        var verdict = Verdict.Evaluate([Pair(), Pair(error: error, errorReview: null)], new ThresholdSettings());
+        Assert.True(verdict.Conditions[1].Pass);
+    }
+
+    [Fact]
+    public void ABothSidedEntryClosesTheErrorOnlyWhenItsSnapshotMatches()
+    {
+        var entries = KnownDifferences.Load(WriteKnown("""
+            [ { "queryId": "Q36", "scope": "P1", "kind": "error", "errorSide": "both", "errorCode": "SQL7619/PG42601",
+                "category": "error-handling", "reason": "same query rejected, text path only", "decision": "acceptable" } ]
+            """));
+        var error = new ErrorOutcome(SqlError, PgError, null, PgError);
+        var closed = KnownDifferences.ReviewError(entries, "Q36", "P1", error)!;
+        Assert.Equal(ReviewOutcome.Acceptable, closed.Outcome);
+        Assert.True(Verdict.Evaluate([Pair(error: error, errorReview: closed)], new ThresholdSettings()).Conditions[1].Pass);
+
+        var changed = new ErrorOutcome(SqlError, new EngineError("PG22000", "z"), null, PgError);
+        var mismatch = KnownDifferences.ReviewError(entries, "Q36", "P1", changed)!;
+        Assert.Equal(ReviewOutcome.SnapshotMismatch, mismatch.Outcome);
+        Assert.False(Verdict.Evaluate([Pair(error: changed, errorReview: mismatch)], new ThresholdSettings()).Conditions[1].Pass);
+
+        // A both-sided entry is not stale while the both-sided error is observed, and is stale once it needs no review.
+        Assert.Empty(KnownDifferences.FindStale(entries, [Pair(query: "Q36", error: error)]));
+        Assert.Single(KnownDifferences.FindStale(entries, [Pair(query: "Q36", error: new ErrorOutcome(SqlError, PgError, SqlError, PgError))]));
     }
 
     [Fact]

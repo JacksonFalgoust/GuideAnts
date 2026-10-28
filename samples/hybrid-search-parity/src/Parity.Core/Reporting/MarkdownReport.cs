@@ -172,7 +172,7 @@ public static class MarkdownReport
                 continue;
             }
 
-            sb.AppendLine($"| `{p.Query.Id}` | {p.Scope} | {e.Side} | {Cell(Describe(e.Baseline))} | {Cell(Describe(e.Candidate))} | {(e.IsOneSided ? ComparisonReport.Status(p.ErrorReview) : "n/a (both failed)")} |");
+            sb.AppendLine($"| `{p.Query.Id}` | {p.Scope} | {e.Side} | {Cell(Describe(e.Baseline))} | {Cell(Describe(e.Candidate))} | {(e.NeedsReview ? ComparisonReport.Status(p.ErrorReview) : "no review needed (both hybrid calls failed: empty results on both engines)")} |");
         }
 
         sb.AppendLine();

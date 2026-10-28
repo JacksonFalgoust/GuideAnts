@@ -34,7 +34,7 @@ public static class ConsoleSummary
                 open.Add($"  {p.Query.Id} · {p.Scope}  full-text  {ComparisonReport.Status(p.TextReview)}  (baseline-only {p.Text?.BaselineOnly.Count ?? 0}, candidate-only {p.Text?.CandidateOnly.Count ?? 0})");
             }
 
-            if ((p.Error is { IsOneSided: true } && (p.ErrorReview?.IsOpen ?? true)) || (p.ErrorReview?.IsOpen ?? false))
+            if ((p.Error is { NeedsReview: true } && (p.ErrorReview?.IsOpen ?? true)) || (p.ErrorReview?.IsOpen ?? false))
             {
                 open.Add($"  {p.Query.Id} · {p.Scope}  error  {ComparisonReport.Status(p.ErrorReview)}  ({p.Error?.Side} {p.Error?.Code})");
             }
@@ -54,6 +54,16 @@ public static class ConsoleSummary
         {
             sb.AppendLine("Open items:");
             open.ForEach(line => sb.AppendLine(line));
+        }
+
+        var unreviewed = report.Pairs.Where(p => p.Error is { Side: "both", NeedsReview: false }).ToList();
+        if (unreviewed.Count > 0)
+        {
+            sb.AppendLine("Errors needing no review (both hybrid calls failed, so both engines return no results):");
+            foreach (var p in unreviewed)
+            {
+                sb.AppendLine($"  {p.Query.Id} · {p.Scope}  error  baseline {p.Error!.Baseline!.Code}, candidate {p.Error.Candidate!.Code}");
+            }
         }
 
         return sb.ToString();

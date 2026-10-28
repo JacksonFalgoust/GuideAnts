@@ -113,6 +113,29 @@ public class ComparisonRunnerTests
     }
 
     [Fact]
+    public async Task ABothSidedErrorRecordsBothHybridErrorsAndStaysOpenUnlessBothHybridCallsFailed()
+    {
+        var sqlText = new EngineError("SQL1", "text");
+        var pgHybrid = new EngineError("PG1", "hybrid");
+        var mixed = await Runner(new InMemoryEngine { FailOnText = _ => sqlText }, new InMemoryEngine { FailOnHybrid = _ => pgHybrid }, ("Q36", "error", "!!! ???"))
+            .RunAsync([P1], CancellationToken.None);
+        var pair = Assert.Single(mixed);
+        Assert.Equal("both", pair.Error!.Side);
+        Assert.Equal("SQL1/PG1", pair.Error.Code);
+        Assert.Null(pair.Error.BaselineHybrid);
+        Assert.Equal(pgHybrid, pair.Error.CandidateHybrid);
+        Assert.Equal(ReviewOutcome.Unreviewed, pair.ErrorReview!.Outcome);
+        Assert.False(Verdict.Evaluate(mixed, new ThresholdSettings()).Conditions[1].Pass);
+
+        var bothHybrid = await Runner(new InMemoryEngine { FailOnHybrid = _ => new EngineError("SQL2", "h") }, new InMemoryEngine { FailOnHybrid = _ => pgHybrid }, ("Q36", "error", "!!! ???"))
+            .RunAsync([P1], CancellationToken.None);
+        var quiet = Assert.Single(bothHybrid);
+        Assert.True(quiet.Error!.BothHybridFailed);
+        Assert.Null(quiet.ErrorReview);
+        Assert.Null(quiet.Hybrid);
+    }
+
+    [Fact]
     public async Task AMissingScoredChunkThrowsNamingTheEngineAndChunk()
     {
         var inner = new InMemoryEngine();

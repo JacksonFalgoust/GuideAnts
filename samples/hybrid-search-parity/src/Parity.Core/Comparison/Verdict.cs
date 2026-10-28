@@ -17,7 +17,7 @@ public static class Verdict
         // Fail closed: a difference with no review attached counts as open.
         var open = pairs.Count(p =>
             (p.Text is { IsEqual: false } && (p.TextReview?.IsOpen ?? true)) ||
-            (p.Error is { IsOneSided: true } && (p.ErrorReview?.IsOpen ?? true)) ||
+            (p.Error is { NeedsReview: true } && (p.ErrorReview?.IsOpen ?? true)) ||
             (p.TextReview?.IsOpen ?? false) ||
             (p.ErrorReview?.IsOpen ?? false));
         var counted = pairs.Where(p => p.Hybrid is not null).Select(p => p.Hybrid!).ToList();

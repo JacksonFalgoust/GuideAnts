@@ -89,7 +89,7 @@ public sealed class ComparisonRunner(SearchEngine baseline, SearchEngine candida
             }
         }
 
-        var error = new ErrorOutcome(textA.Error ?? hybridA.Error, textB.Error ?? hybridB.Error);
+        var error = new ErrorOutcome(textA.Error ?? hybridA.Error, textB.Error ?? hybridB.Error, hybridA.Error, hybridB.Error);
         if (error.Side != "none")
         {
             return new PairResult(queryRef, scope.Label, vector, textDiff, textReview, evidence, error,
