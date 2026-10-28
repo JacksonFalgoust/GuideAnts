@@ -94,8 +94,7 @@ public sealed class PostgresDiagnosticsTests(IntegrationFixture fixture)
         Assert.Equal((18, 18), (coverage.Rows, coverage.IndexedRows));
     }
 
-    [Fact]
-    public async Task StopWordOnlyChunkStillCountsAsIndexed()
+    private async Task<(string ConnectionString, IReadOnlyList<Parity.Core.Model.ChunkRecord> Chunks)> StopWordSeedAsync()
     {
         // An all-stop-word chunk legitimately yields an empty tsvector; it is still indexed (the generated column is populated).
         var stopWordChunk = MiniCorpus.Chunks[0] with { Id = MiniCorpus.Id("stop-words-only"), ChunkIndex = 99, Content = "the and of" };
@@ -106,10 +105,30 @@ public sealed class PostgresDiagnosticsTests(IntegrationFixture fixture)
             c => new PostgresSearchStore("stop-word-chunk", c, PostgresSchema.CustomConfigName),
             chunks,
             MiniCorpus.CreatedUtc);
+        return (cs, chunks);
+    }
 
+    [Fact]
+    public async Task StopWordOnlyChunkStillCountsAsIndexed()
+    {
+        var (cs, chunks) = await StopWordSeedAsync();
         await using var diagnostics = new PostgresSearchDiagnostics("stop-word-chunk", cs, PostgresSchema.CustomConfigName);
         var coverage = await diagnostics.GetIndexCoverageAsync(CancellationToken.None);
         Assert.Equal((chunks.Count, chunks.Count), (coverage.Rows, coverage.IndexedRows));
+    }
+
+    [Fact]
+    public async Task EveryChunkWithAContentWordHasANonEmptyTsvector()
+    {
+        // The IS NOT NULL coverage check alone would pass on empty vectors, so check the vectors have content too.
+        var (cs, chunks) = await StopWordSeedAsync();
+        await using var connection = new Npgsql.NpgsqlConnection(cs);
+        await connection.OpenAsync();
+        await using var command = new Npgsql.NpgsqlCommand("""SELECT COUNT(*) FILTER (WHERE length("ContentTsv") > 0), COUNT(*) FILTER (WHERE length("ContentTsv") = 0) FROM "DocumentChunks" """, connection);
+        await using var reader = await command.ExecuteReaderAsync();
+        await reader.ReadAsync();
+        Assert.Equal(chunks.Count - 1, reader.GetInt64(0)); // every chunk but the all-stop-word one
+        Assert.Equal(1, reader.GetInt64(1));
     }
 
     [Fact]
