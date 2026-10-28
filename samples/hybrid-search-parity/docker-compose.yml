@@ -9,11 +9,11 @@ services:
       MSSQL_SA_PASSWORD: "Parity_Passw0rd!"
       MSSQL_PID: "Developer"
     ports:
-      - "14333:1433"
+      - "127.0.0.1:14333:1433"
 
   postgres:
     image: pgvector/pgvector:0.8.7-pg18
     environment:
       POSTGRES_PASSWORD: "parity"
     ports:
-      - "54329:5432"
+      - "127.0.0.1:54329:5432"
