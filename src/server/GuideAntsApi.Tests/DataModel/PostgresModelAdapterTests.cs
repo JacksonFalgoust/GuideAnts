@@ -189,6 +189,9 @@ public sealed class PostgresModelAdapterTests
         }
 
         ((byte[])converter.ConvertFromProvider(0x01020304u)!).Should().Equal(1, 2, 3, 4);
+
+        // A token that is not 4 bytes (for example a SQL Server rowversion) maps to 0, which no row's xmin has.
+        converter.ConvertToProvider(new byte[8]).Should().Be(0u);
     }
 
     [TestMethod]
@@ -285,6 +288,9 @@ public sealed class PostgresModelAdapterTests
             .Select(n => $"{n.Kind} {n.Name} ({n.Name.Length})")
             .Should().BeEmpty();
 
+        // Apply lifts the limit only while it shortens names; the finalized model reports Postgres's 63 again.
+        model.GetMaxIdentifierLength().Should().Be(MaxIdentifierLength);
+
         // Long names are shortened by the adapter, not cut by EF's '~' truncation.
         names.Where(n => n.Name.Contains('~')).Select(n => n.Name).Should().BeEmpty();
 
@@ -303,6 +309,8 @@ public sealed class PostgresModelAdapterTests
         name.Length.Should().BeGreaterThan(MaxIdentifierLength);
 
         var shortened = PostgresModelAdapter.ShortenIdentifier(name);
+        // Pinned: the Postgres migrations use this name, so the shortening must never change.
+        shortened.Should().Be("IX_HostFolderMountLinks_NotebookId_LinkRelativePath_Ac_e91c9fb7");
         shortened.Length.Should().BeLessThanOrEqualTo(MaxIdentifierLength);
         shortened.Should().Be(PostgresModelAdapter.ShortenIdentifier(name));
         shortened.Should().StartWith("IX_HostFolderMountLinks_NotebookId_LinkRelativePath");
