@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- EF Core migrations for the Postgres provider. ApplicationDbContextOptions points Npgsql here
+       (MigrationsAssembly = "GuideAntsApi.DataModel.Postgres"); the SQL Server migrations stay in GuideAntsApi.DataModel. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GuideAntsApi.DataModel\GuideAntsApi.DataModel.csproj" />
+  </ItemGroup>
+
+</Project>

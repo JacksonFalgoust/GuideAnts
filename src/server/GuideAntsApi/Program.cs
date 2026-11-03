@@ -1,5 +1,6 @@
 using GuideAntsApi.Configuration;
 using GuideAntsApi.Database;
+using GuideAntsApi.DataModel.Database;
 using GuideAntsApi.Services.Migrations;
 using GuideAntsApi.Services.Mcp;
 using GuideAntsApi.Endpoints;
@@ -183,8 +184,17 @@ public class Program
                 });
             });
             var dbInitLogger = dbInitLoggerFactory.CreateLogger("Database");
-            SqlServerDatabaseInitializer.EnsureCatalogAndMigrate(defaultConnectionString, dbInitLogger);
-            LogPhase("EnsureCatalogAndMigrate");
+            var databaseProvider = DatabaseProviderSettings.Parse(bootstrapConfiguration[DatabaseProviderSettings.ConfigurationKey]);
+            if (databaseProvider == DatabaseProvider.Postgres)
+            {
+                PostgresDatabaseInitializer.EnsureDatabaseAndMigrate(defaultConnectionString, dbInitLogger);
+                LogPhase("EnsureDatabaseAndMigrate");
+            }
+            else
+            {
+                SqlServerDatabaseInitializer.EnsureCatalogAndMigrate(defaultConnectionString, dbInitLogger);
+                LogPhase("EnsureCatalogAndMigrate");
+            }
         }
 
         // Add DB-backed settings after schema exists so Build() and later config reads can load this provider safely.

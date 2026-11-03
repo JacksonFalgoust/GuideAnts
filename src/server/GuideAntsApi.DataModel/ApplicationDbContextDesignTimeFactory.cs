@@ -6,15 +6,22 @@ namespace GuideAntsApi.DataModel;
 
 public sealed class ApplicationDbContextDesignTimeFactory : IDesignTimeDbContextFactory<ApplicationDbContext>
 {
+    private const string SqlServerDefaultConnection =
+        "Server=localhost,1434;Initial Catalog=guideants-dev-major-refactor-20260415;Persist Security Info=False;User ID=sa;Password=YourStrong!Passw0rd;Encrypt=False;TrustServerCertificate=True;Connection Timeout=30;ConnectRetryCount=3;ConnectRetryInterval=5;";
+
+    // Matches the local Postgres compose service (host port 5433). Generating migrations needs no connection.
+    private const string PostgresDefaultConnection =
+        "Host=localhost;Port=5433;Database=guideants-dev;Username=guideants;Password=YourStrong!Passw0rd";
+
     public ApplicationDbContext CreateDbContext(string[] args)
     {
+        var provider = ResolveProvider(args);
         var connectionString =
             Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
             ?? Environment.GetEnvironmentVariable("ConnectionStrings:DefaultConnection")
-            ?? "Server=localhost,1434;Initial Catalog=guideants-dev-major-refactor-20260415;Persist Security Info=False;User ID=sa;Password=YourStrong!Passw0rd;Encrypt=False;TrustServerCertificate=True;Connection Timeout=30;ConnectRetryCount=3;ConnectRetryInterval=5;";
+            ?? (provider == DatabaseProvider.Postgres ? PostgresDefaultConnection : SqlServerDefaultConnection);
 
         var optionsBuilder = new DbContextOptionsBuilder<ApplicationDbContext>();
-        var provider = ResolveProvider(args);
         ApplicationDbContextOptions.Configure(optionsBuilder, provider, connectionString, new DbProviderTuning(60, true, false));
 
         return new ApplicationDbContext(optionsBuilder.Options);

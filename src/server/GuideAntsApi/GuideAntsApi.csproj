@@ -85,6 +85,8 @@
     </ProjectReference>
     <ProjectReference Include="..\GuideAnts.Logging\GuideAnts.Logging.csproj" />
     <ProjectReference Include="..\GuideAntsApi.DataModel\GuideAntsApi.DataModel.csproj" />
+    <!-- Postgres migrations, loaded by name when Database:Provider is Postgres. -->
+    <ProjectReference Include="..\GuideAntsApi.DataModel.Postgres\GuideAntsApi.DataModel.Postgres.csproj" />
     <ProjectReference Include="..\GuideAnts.Usage\GuideAnts.Usage.csproj" />
     <ProjectReference Include="..\GuideAntsApi.BackgroundJobs\GuideAntsApi.BackgroundJobs.csproj" />
   </ItemGroup>

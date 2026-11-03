@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Starts SQL Server and Postgres containers (Docker required) and compares what each provider builds. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentAssertions" Version="8.8.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="MSTest" Version="3.10.4" />
+    <PackageReference Include="Testcontainers.MsSql" Version="4.9.0" />
+    <PackageReference Include="Testcontainers.PostgreSql" Version="4.9.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GuideAntsApi\GuideAntsApi.csproj" />
+    <ProjectReference Include="..\GuideAntsApi.DataModel\GuideAntsApi.DataModel.csproj" />
+    <ProjectReference Include="..\GuideAntsApi.DataModel.Postgres\GuideAntsApi.DataModel.Postgres.csproj" />
+  </ItemGroup>
+
+</Project>
