@@ -1,3 +1,4 @@
+using GuideAntsApi.DataModel.Database;
 using System.Text;
 using System.Threading;
 using Microsoft.EntityFrameworkCore;
@@ -30,11 +31,7 @@ namespace AntRunner.ToolCalling.AssistantDefinitions.Storage
             }
 
             var optionsBuilder = new DbContextOptionsBuilder<ApplicationDbContext>();
-            optionsBuilder.UseSqlServer(connectionString, sqlOptions =>
-            {
-                sqlOptions.EnableRetryOnFailure(maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(10), errorNumbersToAdd: null);
-                sqlOptions.CommandTimeout(60);
-            });
+            ApplicationDbContextOptions.Configure(optionsBuilder, DatabaseProviderSettings.FromEnvironment(), connectionString, new DbProviderTuning(60, false, false));
             return new ApplicationDbContext(optionsBuilder.Options);
         }
 

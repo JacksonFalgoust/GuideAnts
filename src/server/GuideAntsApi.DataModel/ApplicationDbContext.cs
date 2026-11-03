@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using GuideAntsApi.DataModel.Database;
 using GuideAntsApi.DataModel.Models;
 
 namespace GuideAntsApi.DataModel
@@ -10,11 +11,7 @@ namespace GuideAntsApi.DataModel
             var builder = new DbContextOptionsBuilder<ApplicationDbContext>();
             var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings:DefaultConnection")
                 ?? throw new Exception("Connection string 'ConnectionStrings:DefaultConnection' not found in environment.");
-            builder.UseSqlServer(connectionString, sql =>
-            {
-                sql.EnableRetryOnFailure(maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(10), errorNumbersToAdd: null);
-                sql.CommandTimeout(60);
-            });
+            ApplicationDbContextOptions.Configure(builder, DatabaseProviderSettings.FromEnvironment(), connectionString, new DbProviderTuning(60, false, false));
             return new ApplicationDbContext(builder.Options);
         }
 
@@ -304,7 +301,7 @@ namespace GuideAntsApi.DataModel
 
             modelBuilder.Entity<ConversationTurn>()
                 .HasIndex(t => new { t.NotebookConversationId, t.TurnIndex })
-                .IncludeProperties(t => t.AssistantName);
+                .SqlServerIncludeProperties(t => t.AssistantName);
 
             // Configure default values for ConversationTurn columns
             modelBuilder.Entity<ConversationTurn>()
@@ -329,7 +326,7 @@ namespace GuideAntsApi.DataModel
             // Index for efficient polling by observers
             modelBuilder.Entity<ConversationTurn>()
                 .HasIndex(t => new { t.NotebookConversationId, t.LastUpdated })
-                .IncludeProperties(t => new { t.Status, t.TurnIndex });
+                .SqlServerIncludeProperties(t => new { t.Status, t.TurnIndex });
 
             // Check constraint for valid status values
             modelBuilder.Entity<ConversationTurn>()
@@ -396,19 +393,19 @@ namespace GuideAntsApi.DataModel
             {
                 // Covering index recommended by Azure for queries filtering by Created and selecting ProjectId and cost/charge columns
                 b.HasIndex(x => x.Created)
-                    .IncludeProperties(x => new { x.ProjectId, x.CostUsd, x.MarkupPercent, x.ChargeUsd });
+                    .SqlServerIncludeProperties(x => new { x.ProjectId, x.CostUsd, x.MarkupPercent, x.ChargeUsd });
 
                 // For published guide cost limit checks: filter by NotebookId + Created range and sum ChargeUsd.
                 // UsageEvent.NotebookId is nullable, but limit checks use NotebookId != null.
                 b.HasIndex(x => new { x.NotebookId, x.Created })
-                    .IncludeProperties(x => new { x.ChargeUsd })
+                    .SqlServerIncludeProperties(x => new { x.ChargeUsd })
                     .HasDatabaseName("IX_UsageEvents_NotebookId_Created_ForCostLimits");
 
                 // Covering index for guide usage report consolidated query:
                 // Filters: AssistantId, ProjectId, AgentInvocationId, Created
                 // Selects: Category, Operation, ConversationId, ValueInput, ValueCachedInput, ValueReasoning, ValueOutput, ChargeUsd
                 b.HasIndex(x => new { x.AssistantId, x.ProjectId, x.AgentInvocationId, x.Created })
-                    .IncludeProperties(x => new { 
+                    .SqlServerIncludeProperties(x => new { 
                         x.Category, x.Operation, x.ConversationId, 
                         x.ValueInput, x.ValueCachedInput, x.ValueReasoning, x.ValueOutput, x.ChargeUsd 
                     })
@@ -416,7 +413,7 @@ namespace GuideAntsApi.DataModel
 
                 // Covering index for crew totals by invoking guide (no joins)
                 b.HasIndex(x => new { x.InvokingAssistantId, x.ProjectId, x.Created })
-                    .IncludeProperties(x => new {
+                    .SqlServerIncludeProperties(x => new {
                         x.Category, x.Operation, x.ConversationId,
                         x.ValueInput, x.ValueCachedInput, x.ValueReasoning, x.ValueOutput, x.ChargeUsd
                     })
@@ -424,7 +421,7 @@ namespace GuideAntsApi.DataModel
 
                 // Covering index for crew usage queries (by AgentInvocationId)
                 b.HasIndex(x => x.AgentInvocationId)
-                    .IncludeProperties(x => new {
+                    .SqlServerIncludeProperties(x => new {
                         x.Created, x.Category, x.ConversationId,
                         x.ValueInput, x.ValueCachedInput, x.ValueReasoning, x.ValueOutput, x.ChargeUsd
                     })
@@ -433,7 +430,7 @@ namespace GuideAntsApi.DataModel
                 // Covering index for project details "last activity per notebook" aggregation:
                 // WHERE ProjectId = X AND NotebookId IS NOT NULL GROUP BY NotebookId SELECT MAX(Created)
                 b.HasIndex(x => new { x.ProjectId, x.NotebookId })
-                    .IncludeProperties(x => new { x.Created })
+                    .SqlServerIncludeProperties(x => new { x.Created })
                     .HasDatabaseName("IX_UsageEvents_ProjectId_NotebookId_ForLastActivity");
 
                 // NotebookConversationMessageId is intentionally NOT a FK constraint.

@@ -1,3 +1,4 @@
+using GuideAntsApi.DataModel.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using Microsoft.OpenApi.Any;
@@ -548,21 +549,12 @@ public static class StartupConfiguration
         var connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
 
+        var provider = DatabaseProviderSettings.Parse(configuration[DatabaseProviderSettings.ConfigurationKey]);
+        services.AddSingleton(new DatabaseProviderInfo(provider));
+
         services.AddDbContext<ApplicationDbContext>((serviceProvider, options) =>
         {
-            options.UseSqlServer(connectionString, sqlOptions =>
-            {
-                // Use single-query by default. SplitQuery was causing system-wide lock contention:
-                // each split generates uncorrelated scans that block on concurrent write operations
-                // (e.g., retention cleanup). Queries that genuinely need split behavior can opt in
-                // with .AsSplitQuery() on a case-by-case basis.
-                sqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SingleQuery);
-                // Enable vector search functions
-                sqlOptions.UseVectorSearch();
-                // Resilient SQL execution and generous timeout for transient Azure SQL hiccups
-                sqlOptions.EnableRetryOnFailure(maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(10), errorNumbersToAdd: null);
-                sqlOptions.CommandTimeout(60);
-            });
+            ApplicationDbContextOptions.Configure(options, provider, connectionString, new DbProviderTuning(60, true, true));
 
             // Add interceptor for enhanced query logging with source information
             options.AddInterceptors(serviceProvider.GetRequiredService<EfQueryWarningInterceptor>());
@@ -592,14 +584,7 @@ public static class StartupConfiguration
         // Also register a pooled factory for use by BackgroundJobs handlers (no scoped dependencies)
         services.AddPooledDbContextFactory<ApplicationDbContext>(options =>
         {
-            options.UseSqlServer(connectionString, sqlOptions =>
-            {
-                sqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SingleQuery);
-                sqlOptions.UseVectorSearch();
-                // Resilient SQL execution and generous timeout for transient Azure SQL hiccups
-                sqlOptions.EnableRetryOnFailure(maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(10), errorNumbersToAdd: null);
-                sqlOptions.CommandTimeout(300);
-            });
+            ApplicationDbContextOptions.Configure(options, provider, connectionString, new DbProviderTuning(300, true, true));
 
             options.ConfigureWarnings(warnings =>
             {

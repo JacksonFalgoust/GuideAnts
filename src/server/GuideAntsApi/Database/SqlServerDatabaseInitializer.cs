@@ -1,3 +1,4 @@
+using GuideAntsApi.DataModel.Database;
 using GuideAntsApi.DataModel;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -85,13 +86,7 @@ public static class SqlServerDatabaseInitializer
         logger.LogInformation("SQL Server catalog '{Catalog}' is ready; applying EF Core migrations.", catalog);
 
         var optionsBuilder = new DbContextOptionsBuilder<ApplicationDbContext>();
-        optionsBuilder.UseSqlServer(connectionString, sqlOptions =>
-        {
-            sqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SingleQuery);
-            sqlOptions.UseVectorSearch();
-            sqlOptions.EnableRetryOnFailure(maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(10), errorNumbersToAdd: null);
-            sqlOptions.CommandTimeout(60);
-        });
+        ApplicationDbContextOptions.Configure(optionsBuilder, DatabaseProviderSettings.FromEnvironment(), connectionString, new DbProviderTuning(60, true, true));
 
         using var context = new ApplicationDbContext(optionsBuilder.Options);
         context.Database.Migrate();

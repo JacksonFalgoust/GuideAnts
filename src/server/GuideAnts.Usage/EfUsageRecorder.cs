@@ -1,3 +1,4 @@
+using GuideAntsApi.DataModel.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -287,20 +288,13 @@ public static class UsageRecorderFactory
         var conn = Environment.GetEnvironmentVariable("ConnectionStrings:DefaultConnection")
                    ?? throw new InvalidOperationException("Env var 'ConnectionStrings:DefaultConnection' not set.");
 
-        var optionsBuilder = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseSqlServer(conn, sql =>
-            {
-                sql.EnableRetryOnFailure(maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(10), errorNumbersToAdd: null);
-                sql.CommandTimeout(60);
-            });
+        var provider = DatabaseProviderSettings.FromEnvironment();
+        var optionsBuilder = new DbContextOptionsBuilder<ApplicationDbContext>();
+        ApplicationDbContextOptions.Configure(optionsBuilder, provider, conn, new DbProviderTuning(60, false, false));
 
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddDbContext<ApplicationDbContext>(o => o.UseSqlServer(conn, sql =>
-        {
-            sql.EnableRetryOnFailure(maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(10), errorNumbersToAdd: null);
-            sql.CommandTimeout(60);
-        }));
+        services.AddDbContext<ApplicationDbContext>(o => ApplicationDbContextOptions.Configure(o, provider, conn, new DbProviderTuning(60, false, false)));
         var sp = services.BuildServiceProvider();
 
         var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();

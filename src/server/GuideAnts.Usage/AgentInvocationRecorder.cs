@@ -1,3 +1,4 @@
+using GuideAntsApi.DataModel.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -232,11 +233,8 @@ public static class AgentInvocationRecorderFactory
 
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddDbContext<ApplicationDbContext>(o => o.UseSqlServer(conn, sql =>
-        {
-            sql.EnableRetryOnFailure(maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(10), errorNumbersToAdd: null);
-            sql.CommandTimeout(60);
-        }));
+        var provider = DatabaseProviderSettings.FromEnvironment();
+        services.AddDbContext<ApplicationDbContext>(o => ApplicationDbContextOptions.Configure(o, provider, conn, new DbProviderTuning(60, false, false)));
         var sp = services.BuildServiceProvider();
 
         var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
