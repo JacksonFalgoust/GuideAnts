@@ -26,6 +26,13 @@ public static class PostgresModelAdapter
     private const string CaseInsensitiveLocale = "und-u-ks-level2";
     private const string SqlServerIncludeAnnotation = "SqlServer:Include";
 
+    // SQL Server stores a longer nvarchar/varchar as (max), and bounds an unbounded string that is part of a
+    // key, foreign key or index by its 900-byte index key limit.
+    private const int SqlServerMaxUnicodeLength = 4000;
+    private const int SqlServerMaxAnsiLength = 8000;
+    private const int SqlServerKeyUnicodeLength = 450;
+    private const int SqlServerKeyAnsiLength = 900;
+
     private static readonly Dictionary<string, string> ColumnTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         ["nvarchar(max)"] = "text",
@@ -100,6 +107,16 @@ public static class PostgresModelAdapter
                 }
 
                 AdaptCheckConstraints(entityType, columns);
+
+                foreach (var foreignKey in entityType.GetDeclaredForeignKeys())
+                {
+                    // SQL Server has no ON DELETE RESTRICT and creates these as NO ACTION. EF treats the two
+                    // the same when saving, so this only makes the Postgres constraint match.
+                    if (foreignKey.DeleteBehavior == DeleteBehavior.Restrict)
+                    {
+                        foreignKey.DeleteBehavior = DeleteBehavior.NoAction;
+                    }
+                }
             }
 
             // Constraint and index names are built from table and column names, so they come last.
@@ -163,6 +180,9 @@ public static class PostgresModelAdapter
             && property.GetColumnType() is { } vectorType
             && vectorType.StartsWith("vector(", StringComparison.OrdinalIgnoreCase))
         {
+            // EF treats float[] as a primitive collection; on Postgres it is one scalar vector value, and the
+            // migrations snapshot cannot declare a primitive collection of Pgvector.Vector.
+            property.SetElementType(null);
             property.SetValueConverter(EmbeddingToVector);
             // Same element-wise comparison and snapshot copy that SQL Server's float[] vector mapping uses.
             property.SetValueComparer(EmbeddingComparer);
@@ -171,12 +191,46 @@ public static class PostgresModelAdapter
         var providerType = property.GetValueConverter()?.ProviderClrType ?? property.GetProviderClrType() ?? property.ClrType;
         if (providerType == typeof(string))
         {
+            MatchSqlServerStringLength(property);
             property.SetCollation(CaseInsensitiveCollation);
         }
 
         if (property.GetColumnName() is { Length: > MaxIdentifierLength } column)
         {
             property.SetColumnName(ShortenIdentifier(column));
+        }
+    }
+
+    /// <summary>
+    /// Gives a string column the length SQL Server's type mapping gives it, so both databases accept the same values:
+    /// an unbounded string in a key or index is bounded at 450 (900 if not Unicode), and a length over 4000
+    /// (8000 if not Unicode) is unbounded. Facets come from the principal key for a foreign key, as in EF's mapping.
+    /// </summary>
+    private static void MatchSqlServerStringLength(IMutableProperty property)
+    {
+        // An explicit store type (here or on the principal key it copies) is mapped elsewhere or kept as declared.
+        var principals = property.GetPrincipals();
+        if (principals.Any(p => p.FindAnnotation(RelationalAnnotationNames.ColumnType) is not null) || property.IsFixedLength() == true)
+        {
+            return;
+        }
+
+        var declared = principals.Select(p => p.GetMaxLength()).FirstOrDefault(l => l is not null);
+        var unicode = principals.Select(p => p.IsUnicode()).FirstOrDefault(u => u is not null) ?? true;
+
+        var length = declared;
+        if (length is null && (property.IsKey() || property.IsForeignKey() || property.IsIndex()))
+        {
+            length = unicode ? SqlServerKeyUnicodeLength : SqlServerKeyAnsiLength;
+        }
+        if (length > (unicode ? SqlServerMaxUnicodeLength : SqlServerMaxAnsiLength))
+        {
+            length = null;
+        }
+
+        if (length != declared)
+        {
+            property.SetColumnType(length is null ? "text" : $"character varying({length})");
         }
     }
 

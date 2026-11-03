@@ -201,6 +201,8 @@ public sealed class PostgresModelAdapterTests
             .FindProperty(nameof(DocumentChunk.Embedding))!;
 
         embedding.GetColumnType().Should().Be("vector(1536)");
+        // A scalar pgvector column: the migrations snapshot cannot declare a primitive collection of Vector.
+        embedding.IsPrimitiveCollection.Should().BeFalse();
         var converter = embedding.GetValueConverter();
         converter.Should().NotBeNull();
         converter!.ModelClrType.Should().Be(typeof(float[]));
@@ -322,6 +324,89 @@ public sealed class PostgresModelAdapterTests
         PostgresModel.Value.FindEntityType(typeof(HostFolderMountLink))!.GetDeclaredIndexes()
             .Select(i => i.GetDatabaseName())
             .Should().Contain(shortened);
+    }
+
+    [TestMethod]
+    public void String_column_lengths_match_sql_server()
+    {
+        // SQL Server bounds an unbounded string in a key or index at nvarchar(450), and stores any
+        // length over 4000 as nvarchar(max); Postgres must accept exactly the same lengths.
+        var mismatches = StringProperties(SqlServerModel.Value)
+            .Select(p => (Property: p, Postgres: PostgresPropertyFor(p)))
+            .Select(x => (
+                Name: $"{x.Property.DeclaringType.DisplayName()}.{x.Property.Name}",
+                SqlServer: x.Property.GetColumnType(),
+                Postgres: x.Postgres.GetColumnType()))
+            .Where(x => StoreLength(x.SqlServer) != StoreLength(x.Postgres))
+            .Select(x => $"{x.Name}: {x.SqlServer} vs {x.Postgres}")
+            .ToList();
+
+        mismatches.Should().BeEmpty();
+        PostgresModel.Value.FindEntityType(typeof(User))!.FindProperty(nameof(User.Email))!
+            .GetColumnType().Should().Be("character varying(450)");
+        PostgresModel.Value.FindEntityType(typeof(ProjectExternalAuth))!.FindProperty(nameof(ProjectExternalAuth.HeaderValue))!
+            .GetColumnType().Should().Be("text");
+    }
+
+    [TestMethod]
+    public void Every_sql_server_index_filter_has_a_postgres_counterpart()
+    {
+        var mismatches = SqlServerModel.Value.GetEntityTypes()
+            .SelectMany(e => e.GetDeclaredIndexes())
+            .Select(i => (Index: i, Postgres: PostgresIndexFor(i)))
+            .Where(x => (x.Index.GetFilter() is null) != (x.Postgres.GetFilter() is null)
+                        || x.Index.IsUnique != x.Postgres.IsUnique)
+            .Select(x => $"{x.Index.GetDatabaseName()}: {x.Index.GetFilter() ?? "(none)"} vs {x.Postgres.GetFilter() ?? "(none)"}")
+            .ToList();
+
+        mismatches.Should().BeEmpty();
+    }
+
+    [TestMethod]
+    public void Restrict_foreign_keys_use_no_action_like_sql_server()
+    {
+        // SQL Server has no ON DELETE RESTRICT and creates Restrict foreign keys as NO ACTION.
+        // EF itself treats Restrict and NoAction the same, so only the database action changes.
+        var sqlServerForeignKeys = SqlServerModel.Value.GetEntityTypes().SelectMany(e => e.GetDeclaredForeignKeys()).ToList();
+        sqlServerForeignKeys.Should().Contain(f => f.DeleteBehavior == DeleteBehavior.Restrict);
+
+        foreach (var sqlServerForeignKey in sqlServerForeignKeys)
+        {
+            var postgresForeignKey = PostgresModel.Value.FindEntityType(sqlServerForeignKey.DeclaringEntityType.Name)!
+                .GetDeclaredForeignKeys()
+                .Single(f => f.Properties.Select(p => p.Name).SequenceEqual(sqlServerForeignKey.Properties.Select(p => p.Name))
+                             && f.PrincipalEntityType.Name == sqlServerForeignKey.PrincipalEntityType.Name);
+
+            var expected = sqlServerForeignKey.DeleteBehavior == DeleteBehavior.Restrict
+                ? DeleteBehavior.NoAction
+                : sqlServerForeignKey.DeleteBehavior;
+            postgresForeignKey.DeleteBehavior.Should().Be(expected, sqlServerForeignKey.GetConstraintName());
+        }
+    }
+
+    private static IEnumerable<IProperty> StringProperties(IModel model)
+        => AllProperties(model).Where(p => (p.GetTypeMapping().Converter?.ProviderClrType ?? p.ClrType) == typeof(string));
+
+    private static IProperty PostgresPropertyFor(IProperty sqlServerProperty)
+        => PostgresModel.Value.FindEntityType(sqlServerProperty.DeclaringType.Name)!.FindProperty(sqlServerProperty.Name)!;
+
+    private static IIndex PostgresIndexFor(IIndex sqlServerIndex)
+    {
+        var entityType = PostgresModel.Value.FindEntityType(sqlServerIndex.DeclaringEntityType.Name)!;
+        return entityType.FindIndex(sqlServerIndex.Properties.Select(p => entityType.FindProperty(p.Name)!).ToList())!;
+    }
+
+    /// <summary>The declared length of a SQL Server or Postgres string store type; null when unbounded.</summary>
+    private static int? StoreLength(string storeType)
+    {
+        var open = storeType.IndexOf('(');
+        if (open < 0)
+        {
+            return null; // text
+        }
+
+        var size = storeType[(open + 1)..storeType.IndexOf(')')];
+        return size.Equals("max", StringComparison.OrdinalIgnoreCase) ? null : int.Parse(size);
     }
 
     [TestMethod]
