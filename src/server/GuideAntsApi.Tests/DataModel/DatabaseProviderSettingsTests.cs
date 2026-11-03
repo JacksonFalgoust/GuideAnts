@@ -29,4 +29,22 @@ public sealed class DatabaseProviderSettingsTests
         act.Should().Throw<InvalidOperationException>()
             .WithMessage("Unknown Database:Provider 'mysql'. Use 'SqlServer' or 'Postgres'.");
     }
+
+    [TestMethod]
+    public void FromEnvironment_falls_through_empty_colon_key_to_double_underscore_key()
+    {
+        var colon = Environment.GetEnvironmentVariable("Database:Provider");
+        var underscore = Environment.GetEnvironmentVariable("Database__Provider");
+        try
+        {
+            Environment.SetEnvironmentVariable("Database:Provider", "");
+            Environment.SetEnvironmentVariable("Database__Provider", "Postgres");
+            DatabaseProviderSettings.FromEnvironment().Should().Be(DatabaseProvider.Postgres);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("Database:Provider", colon);
+            Environment.SetEnvironmentVariable("Database__Provider", underscore);
+        }
+    }
 }

@@ -27,8 +27,11 @@ public static class DatabaseProviderSettings
 
     public static DatabaseProvider FromEnvironment()
     {
-        var value = Environment.GetEnvironmentVariable(ConfigurationKey)
-            ?? Environment.GetEnvironmentVariable("Database__Provider");
+        var value = Environment.GetEnvironmentVariable(ConfigurationKey);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            value = Environment.GetEnvironmentVariable("Database__Provider");
+        }
         return Parse(value);
     }
 }
