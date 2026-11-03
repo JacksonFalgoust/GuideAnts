@@ -1256,6 +1256,8 @@ namespace GuideAntsApi.DataModel
                     .HasFilter("[Status] IN (0, 1, 2)")
                     .HasDatabaseName("IX_HostFolderMountLinks_NotebookId_LinkRelativePath_ActiveUnique");
             });
+
+            if (Database.IsNpgsql()) PostgresModelAdapter.Apply(modelBuilder);
         }
 
         /// <summary>
