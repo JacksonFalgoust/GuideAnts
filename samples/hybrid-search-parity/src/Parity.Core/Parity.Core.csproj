@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Parity.Core</RootNamespace>
+  </PropertyGroup>
+</Project>

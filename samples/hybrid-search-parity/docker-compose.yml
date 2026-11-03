@@ -1,0 +1,19 @@
+name: hybrid-search-parity
+
+services:
+  sqlserver:
+    image: ghcr.io/elumenotion/mssql2025-express-fts:main
+    platform: linux/amd64 # the image is amd64-only; Docker Desktop emulates it on Apple Silicon
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Parity_Passw0rd!"
+      MSSQL_PID: "Developer"
+    ports:
+      - "127.0.0.1:14333:1433"
+
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg18
+    environment:
+      POSTGRES_PASSWORD: "parity"
+    ports:
+      - "127.0.0.1:54329:5432"
