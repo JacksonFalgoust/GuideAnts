@@ -24,6 +24,15 @@ public static class DatabaseTestProvider
         }
     }
 
+    /// <summary>Marks the calling test inconclusive unless the suite is running on Postgres.</summary>
+    public static void RequirePostgres()
+    {
+        if (Current != DatabaseProvider.Postgres)
+        {
+            Assert.Inconclusive("Postgres-only test");
+        }
+    }
+
     private static DatabaseProvider ReadFromEnvironment()
     {
         var value = Environment.GetEnvironmentVariable(ProviderEnvVar);

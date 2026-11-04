@@ -172,7 +172,6 @@ public class Program
             builder.Services.Count);
         LogPhase("ConfigureServices complete");
 
-        var databaseProvider = DatabaseProviderSettings.Parse(bootstrapConfiguration[DatabaseProviderSettings.ConfigurationKey]);
         if (!string.IsNullOrWhiteSpace(defaultConnectionString))
         {
             using var dbInitLoggerFactory = LoggerFactory.Create(logging =>
@@ -185,6 +184,7 @@ public class Program
                 });
             });
             var dbInitLogger = dbInitLoggerFactory.CreateLogger("Database");
+            var databaseProvider = DatabaseProviderSettings.Parse(bootstrapConfiguration[DatabaseProviderSettings.ConfigurationKey]);
             if (databaseProvider == DatabaseProvider.Postgres)
             {
                 PostgresDatabaseInitializer.EnsureDatabaseAndMigrate(defaultConnectionString, dbInitLogger);
@@ -202,7 +202,7 @@ public class Program
         {
             ((IConfigurationBuilder)builder.Configuration).Add(new ApplicationSettingsConfigurationSource(
                 defaultConnectionString,
-                databaseProvider,
+                DatabaseProviderSettings.Parse(bootstrapConfiguration[DatabaseProviderSettings.ConfigurationKey]),
                 new SettingsSectionRegistry(),
                 builder.Environment.ContentRootPath,
                 settingsSecrets));
