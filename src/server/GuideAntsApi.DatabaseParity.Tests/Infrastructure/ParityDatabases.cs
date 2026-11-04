@@ -30,10 +30,7 @@ public sealed class ParityDatabases : IAsyncDisposable
     {
         _sqlServer = sqlServer;
         _postgres = postgres;
-        SqlServerConnectionString = new SqlConnectionStringBuilder(sqlServer.GetConnectionString())
-        {
-            InitialCatalog = DatabaseName,
-        }.ConnectionString;
+        SqlServerConnectionString = SqlServerConnectionStringFor(DatabaseName);
         PostgresConnectionString = PostgresConnectionStringFor(DatabaseName);
     }
 
@@ -82,6 +79,19 @@ public sealed class ParityDatabases : IAsyncDisposable
     /// <summary>A connection string for another database on the same Postgres server.</summary>
     public string PostgresConnectionStringFor(string database)
         => new NpgsqlConnectionStringBuilder(_postgres.GetConnectionString()) { Database = database }.ConnectionString;
+
+    /// <summary>
+    /// A connection string for another database on the same SQL Server instance. Connection retry is off: SqlClient
+    /// treats "cannot open database" (4060) as transient and retries, and against Docker Desktop on macOS the retry to
+    /// <c>localhost</c> can go to <c>::1</c> and time out (error 258), which EF's database-exists check doesn't catch,
+    /// so migrating a database that doesn't exist yet fails. Without the retry, 4060 comes back at once.
+    /// </summary>
+    public string SqlServerConnectionStringFor(string database)
+        => new SqlConnectionStringBuilder(_sqlServer.GetConnectionString())
+        {
+            InitialCatalog = database,
+            ConnectRetryCount = 0,
+        }.ConnectionString;
 
     public async ValueTask DisposeAsync()
     {

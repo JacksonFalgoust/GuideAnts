@@ -17,7 +17,7 @@ public sealed class SchemaParityTests
     /// Raw-SQL backup of the rows that migration 20260414183022 (RemoveApplicationSettingsConfigModeAndProviderRouting)
     /// rewrote. It is not in the model and no code reads it; a new Postgres database has nothing to back up.
     /// </summary>
-    private const string SqlServerBackupTable = "ApplicationSettingsBackup_20260414_ProviderRouting";
+    internal const string SqlServerBackupTable = "ApplicationSettingsBackup_20260414_ProviderRouting";
 
     /// <summary>
     /// Migration 20260625193000 (AddConversationTurnTraceCapture) has no designer file, so SQL Server's migrations SQL

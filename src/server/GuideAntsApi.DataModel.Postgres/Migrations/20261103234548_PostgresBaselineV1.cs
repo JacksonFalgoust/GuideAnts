@@ -2577,6 +2577,90 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     )
                 ) "lastTurn" ON c."Id" = "lastTurn"."NotebookConversationId";
                 """);
+
+            // Hand-written seed: the rows a fresh SQL Server database ends up with after its raw T-SQL migrations
+            // (SeedDataParityTests compares them). The Tools rows come from HasData above.
+
+            // ApplicationSettings: the defaults that RemoveApplicationSettingsConfigModeAndProviderRouting inserts,
+            // minus 'Search', which RemoveLegacySearchApplicationSetting deletes.
+            migrationBuilder.Sql(
+                """
+                INSERT INTO "ApplicationSettings" ("SectionName", "JsonValue", "SchemaVersion", "CreatedUtc", "UpdatedUtc")
+                VALUES
+                    ('SpeechTranscription', '{"ActiveProviderId":"SpeechTranscription.AzureSpeech.Batch","TimeoutSeconds":300}', 1, now(), now()),
+                    ('SpeechSynthesis', '{"ActiveProviderId":"SpeechSynthesis.AzureSpeech.Ssml","TimeoutSeconds":300}', 1, now(), now()),
+                    ('ImageGeneration', '{"ActiveProviderId":"ImageGeneration.AzureOpenAI.Images","TimeoutSeconds":600}', 1, now(), now()),
+                    ('Embeddings', '{"ActiveProviderId":"Embeddings.AzureOpenAI.Embedding","TimeoutSeconds":300,"LocalMinIntervalMs":5000}', 1, now(), now()),
+                    ('DocumentIntelligence', '{"ActiveProviderId":"DocumentIntelligence.Azure.DocumentIntelligence","TimeoutSeconds":300}', 1, now(), now()),
+                    ('AzureDocumentIntelligence', '{}', 1, now(), now()),
+                    ('AzureSpeechService', '{}', 1, now(), now()),
+                    ('AzureOpenAI', '{}', 1, now(), now()),
+                    ('AzureOpenAiImages', '{}', 1, now(), now()),
+                    ('AzureOpenAiEmbedding', '{}', 1, now(), now()),
+                    ('OpenAI', '{}', 1, now(), now()),
+                    ('Anthropic', '{}', 1, now(), now()),
+                    ('LlamaCpp', '{}', 1, now(), now()),
+                    ('ServiceRouting', '{}', 1, now(), now());
+                """);
+
+            // Usage report categories and their operations, from SeedUsageReportCategoriesAndOperations. SQL Server
+            // generates these ids with NEWID(), so they differ on every SQL Server database; code looks rows up by
+            // Key and Operation. Postgres uses fixed ids instead. SQL Server's case-insensitive SELECT DISTINCT keeps
+            // one of 'STT'/'stt' and of 'TTS'/'tts' (the upper-case ones), so there are 34 operations, not 36.
+            migrationBuilder.Sql(
+                """
+                INSERT INTO "UsageReportCategories" ("Id", "Key", "Title", "Description", "Created")
+                VALUES
+                    ('c0000000-0000-0000-0000-000000000001', 'chat-completion', 'Chat Completion', 'LLM chat completion usage.', now()),
+                    ('c0000000-0000-0000-0000-000000000002', 'search', 'Search', 'Search and retrieval operations.', now()),
+                    ('c0000000-0000-0000-0000-000000000003', 'image-generation', 'Image Generation', 'Image generation and image edit operations.', now()),
+                    ('c0000000-0000-0000-0000-000000000004', 'document-extraction', 'Document Extraction', 'Document and OCR extraction operations.', now()),
+                    ('c0000000-0000-0000-0000-000000000005', 'speech-transcription', 'Speech Transcription', 'Speech-to-text operations.', now()),
+                    ('c0000000-0000-0000-0000-000000000006', 'speech-synthesis', 'Speech Synthesis', 'Text-to-speech operations.', now()),
+                    ('c0000000-0000-0000-0000-000000000007', 'storage-uploaded', 'Storage Uploaded', 'User-uploaded storage operations.', now()),
+                    ('c0000000-0000-0000-0000-000000000008', 'storage-system-generated', 'Storage System Generated', 'System-generated storage operations.', now()),
+                    ('c0000000-0000-0000-0000-000000000009', 'tool-call', 'Tool Call', 'Tool invocation operations.', now());
+
+                INSERT INTO "UsageReportCategoryOperations" ("Id", "Operation", "UsageReportCategoryId")
+                SELECT o."Id", o."Operation", c."Id"
+                FROM (VALUES
+                    ('c1000000-0000-0000-0000-000000000001'::uuid, 'chat', 'chat-completion'),
+                    ('c1000000-0000-0000-0000-000000000002'::uuid, 'agent_invoke', 'chat-completion'),
+                    ('c1000000-0000-0000-0000-000000000003'::uuid, 'completions', 'chat-completion'),
+                    ('c1000000-0000-0000-0000-000000000004'::uuid, 'SearchProject', 'search'),
+                    ('c1000000-0000-0000-0000-000000000005'::uuid, 'SearchNotebook', 'search'),
+                    ('c1000000-0000-0000-0000-000000000006'::uuid, 'SearchAssistant', 'search'),
+                    ('c1000000-0000-0000-0000-000000000007'::uuid, 'WebSearch', 'search'),
+                    ('c1000000-0000-0000-0000-000000000008'::uuid, 'Ask', 'search'),
+                    ('c1000000-0000-0000-0000-000000000009'::uuid, 'Search', 'search'),
+                    ('c1000000-0000-0000-0000-00000000000a'::uuid, 'image-generation', 'image-generation'),
+                    ('c1000000-0000-0000-0000-00000000000b'::uuid, 'image-edit', 'image-generation'),
+                    ('c1000000-0000-0000-0000-00000000000c'::uuid, 'prebuilt-read', 'document-extraction'),
+                    ('c1000000-0000-0000-0000-00000000000d'::uuid, 'prebuilt-layout', 'document-extraction'),
+                    ('c1000000-0000-0000-0000-00000000000e'::uuid, 'STT', 'speech-transcription'),
+                    ('c1000000-0000-0000-0000-00000000000f'::uuid, 'transcribe', 'speech-transcription'),
+                    ('c1000000-0000-0000-0000-000000000010'::uuid, 'TTS', 'speech-synthesis'),
+                    ('c1000000-0000-0000-0000-000000000011'::uuid, 'upload', 'storage-uploaded'),
+                    ('c1000000-0000-0000-0000-000000000012'::uuid, 'create-text-file', 'storage-uploaded'),
+                    ('c1000000-0000-0000-0000-000000000013'::uuid, 'system', 'storage-system-generated'),
+                    ('c1000000-0000-0000-0000-000000000014'::uuid, 'ReadWeb', 'tool-call'),
+                    ('c1000000-0000-0000-0000-000000000015'::uuid, 'GetContentFromUrl', 'tool-call'),
+                    ('c1000000-0000-0000-0000-000000000016'::uuid, 'search_project', 'tool-call'),
+                    ('c1000000-0000-0000-0000-000000000017'::uuid, 'search_notebook', 'tool-call'),
+                    ('c1000000-0000-0000-0000-000000000018'::uuid, 'SearchAssistantFiles', 'tool-call'),
+                    ('c1000000-0000-0000-0000-000000000019'::uuid, 'run_python', 'tool-call'),
+                    ('c1000000-0000-0000-0000-00000000001a'::uuid, 'run_bash', 'tool-call'),
+                    ('c1000000-0000-0000-0000-00000000001b'::uuid, 'make_diagram', 'tool-call'),
+                    ('c1000000-0000-0000-0000-00000000001c'::uuid, 'generate_image', 'tool-call'),
+                    ('c1000000-0000-0000-0000-00000000001d'::uuid, 'MakeImageFromImage', 'tool-call'),
+                    ('c1000000-0000-0000-0000-00000000001e'::uuid, 'generate_podcast', 'tool-call'),
+                    ('c1000000-0000-0000-0000-00000000001f'::uuid, 'set_user_context_options', 'tool-call'),
+                    ('c1000000-0000-0000-0000-000000000020'::uuid, 'InvokeAgent', 'tool-call'),
+                    ('c1000000-0000-0000-0000-000000000021'::uuid, 'GetParentConversation', 'tool-call'),
+                    ('c1000000-0000-0000-0000-000000000022'::uuid, 'crawl', 'tool-call')
+                ) AS o ("Id", "Operation", "CategoryKey")
+                JOIN "UsageReportCategories" c ON c."Key" = o."CategoryKey";
+                """);
         }
 
         /// <inheritdoc />
