@@ -19,6 +19,9 @@ public sealed class UsageQueryService(IServiceScopeFactory scopeFactory) : IUsag
 {
     private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
 
+    // A Sunday. Postgres week buckets count whole weeks from here, so they cross on Sunday like DATEDIFF(week).
+    private static readonly DateTime PostgresWeekOrigin = new(1900, 1, 7, 0, 0, 0, DateTimeKind.Utc);
+
     
 
     private static DateTime NormalizeBucketStart(DateTime from, UsageBucketDto bucket)
@@ -61,7 +64,19 @@ public sealed class UsageQueryService(IServiceScopeFactory scopeFactory) : IUsag
         var totalCost = await baseQuery.SumAsync(e => (decimal?)e.ChargeUsd) ?? 0m;
 
         var anchor = NormalizeBucketStart(from, bucket);
-        var bucketedRaw = await baseQuery
+        var bucketed = db.Database.IsNpgsql()
+            ? baseQuery.Select(e => new
+            {
+                // Postgres has no DATEDIFF. These count the same boundaries SQL Server's DATEDIFF does
+                // (UTC midnight, Sunday, the first of the month).
+                Index = bucket == UsageBucketDto.Day
+                    ? (e.Created.Date - anchor.Date).Days
+                    : bucket == UsageBucketDto.Week
+                        ? ((e.Created.Date - PostgresWeekOrigin).Days / 7) - ((anchor.Date - PostgresWeekOrigin).Days / 7)
+                        : (e.Created.Year - anchor.Year) * 12 + e.Created.Month - anchor.Month,
+                Cost = e.ChargeUsd ?? 0m
+            })
+            : baseQuery
             .Select(e => new
             {
                 Index = bucket == UsageBucketDto.Day
@@ -70,7 +85,8 @@ public sealed class UsageQueryService(IServiceScopeFactory scopeFactory) : IUsag
                         ? EF.Functions.DateDiffWeek(anchor, e.Created)
                         : EF.Functions.DateDiffMonth(anchor, e.Created),
                 Cost = e.ChargeUsd ?? 0m
-            })
+            });
+        var bucketedRaw = await bucketed
             .GroupBy(x => x.Index)
             .Select(g => new { Index = g.Key, TotalEvents = g.LongCount(), TotalCost = g.Sum(x => x.Cost) })
             .ToListAsync();
@@ -135,7 +151,19 @@ using var scope = _scopeFactory.CreateScope();
         var totalCost = await baseQuery.SumAsync(e => (decimal?)e.ChargeUsd) ?? 0m;
 
         var anchor = NormalizeBucketStart(from, bucket);
-        var bucketedRaw = await baseQuery
+        var bucketed = db.Database.IsNpgsql()
+            ? baseQuery.Select(e => new
+            {
+                // Postgres has no DATEDIFF. These count the same boundaries SQL Server's DATEDIFF does
+                // (UTC midnight, Sunday, the first of the month).
+                Index = bucket == UsageBucketDto.Day
+                    ? (e.Created.Date - anchor.Date).Days
+                    : bucket == UsageBucketDto.Week
+                        ? ((e.Created.Date - PostgresWeekOrigin).Days / 7) - ((anchor.Date - PostgresWeekOrigin).Days / 7)
+                        : (e.Created.Year - anchor.Year) * 12 + e.Created.Month - anchor.Month,
+                Cost = e.ChargeUsd ?? 0m
+            })
+            : baseQuery
             .Select(e => new
             {
                 Index = bucket == UsageBucketDto.Day
@@ -144,7 +172,8 @@ using var scope = _scopeFactory.CreateScope();
                         ? EF.Functions.DateDiffWeek(anchor, e.Created)
                         : EF.Functions.DateDiffMonth(anchor, e.Created),
                 Cost = e.ChargeUsd ?? 0m
-            })
+            });
+        var bucketedRaw = await bucketed
             .GroupBy(x => x.Index)
             .Select(g => new { Index = g.Key, TotalEvents = g.LongCount(), TotalCost = g.Sum(x => x.Cost) })
             .ToListAsync();

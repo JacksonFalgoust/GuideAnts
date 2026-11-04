@@ -1,4 +1,5 @@
 using FluentAssertions;
+using GuideAntsApi.DataModel.Database;
 using GuideAntsApi.Settings;
 using System.Text.Json.Nodes;
 
@@ -12,6 +13,7 @@ public sealed class ApplicationSettingsConfigurationProviderTests
     {
         var provider = new ApplicationSettingsConfigurationProvider(
             connectionString: string.Empty,
+            provider: DatabaseProvider.SqlServer,
             registry: new SettingsSectionRegistry(),
             contentRootPath: AppContext.BaseDirectory,
             settingsSecrets: CreateValidSecretsOptions());
@@ -26,6 +28,7 @@ public sealed class ApplicationSettingsConfigurationProviderTests
     {
         var provider = new ApplicationSettingsConfigurationProvider(
             connectionString: "not-a-connection-string",
+            provider: DatabaseProvider.SqlServer,
             registry: new SettingsSectionRegistry(),
             contentRootPath: AppContext.BaseDirectory,
             settingsSecrets: CreateValidSecretsOptions());
@@ -40,6 +43,45 @@ public sealed class ApplicationSettingsConfigurationProviderTests
     }
 
     [TestMethod]
+    public void Load_OnPostgres_WithInvalidConnectionString_ThrowsLoudStartupException()
+    {
+        var provider = new ApplicationSettingsConfigurationProvider(
+            connectionString: "not-a-connection-string",
+            provider: DatabaseProvider.Postgres,
+            registry: new SettingsSectionRegistry(),
+            contentRootPath: AppContext.BaseDirectory,
+            settingsSecrets: CreateValidSecretsOptions());
+
+        Action act = () => provider.Load();
+
+        act
+            .Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("Failed to load DB-backed application settings from '<unparseable-connection-string>'*")
+            .WithMessage("*Startup was aborted*");
+    }
+
+    [TestMethod]
+    public void Load_OnPostgres_WhenServerIsUnreachable_NamesHostAndDatabase()
+    {
+        // Nothing listens on port 1, so the connection is refused at once and the error names the target.
+        var provider = new ApplicationSettingsConfigurationProvider(
+            connectionString: "Host=127.0.0.1;Port=1;Database=guideants_settings;Username=guideants;Password=unused;Timeout=2",
+            provider: DatabaseProvider.Postgres,
+            registry: new SettingsSectionRegistry(),
+            contentRootPath: AppContext.BaseDirectory,
+            settingsSecrets: CreateValidSecretsOptions());
+
+        Action act = () => provider.Load();
+
+        act
+            .Should()
+            .Throw<InvalidOperationException>()
+            .WithMessage("Failed to load DB-backed application settings from '127.0.0.1/guideants_settings'*")
+            .WithInnerException<Npgsql.NpgsqlException>();
+    }
+
+    [TestMethod]
     public void FlattenSection_EmitsEmptyCanonicalKeys_ForNullChatDefaultsFields()
     {
         var registry = new SettingsSectionRegistry();
@@ -47,6 +89,7 @@ public sealed class ApplicationSettingsConfigurationProviderTests
 
         var provider = new ApplicationSettingsConfigurationProvider(
             connectionString: string.Empty,
+            provider: DatabaseProvider.SqlServer,
             registry: registry,
             contentRootPath: AppContext.BaseDirectory,
             settingsSecrets: CreateValidSecretsOptions());
@@ -81,6 +124,7 @@ public sealed class ApplicationSettingsConfigurationProviderTests
 
         var provider = new ApplicationSettingsConfigurationProvider(
             connectionString: string.Empty,
+            provider: DatabaseProvider.SqlServer,
             registry: registry,
             contentRootPath: AppContext.BaseDirectory,
             settingsSecrets: CreateValidSecretsOptions());

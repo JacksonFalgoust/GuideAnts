@@ -1,4 +1,10 @@
+using GuideAntsApi.DataModel.Database;
+
 using Microsoft.Data.SqlClient;
+
+using Npgsql;
+
+using System.Data.Common;
 
 using System.Text.Json.Nodes;
 
@@ -12,6 +18,8 @@ public sealed class ApplicationSettingsConfigurationSource(
 
     string connectionString,
 
+    DatabaseProvider provider,
+
     ISettingsSectionRegistry registry,
 
     string contentRootPath,
@@ -24,7 +32,7 @@ public sealed class ApplicationSettingsConfigurationSource(
 
     {
 
-        return new ApplicationSettingsConfigurationProvider(connectionString, registry, contentRootPath, settingsSecrets);
+        return new ApplicationSettingsConfigurationProvider(connectionString, provider, registry, contentRootPath, settingsSecrets);
 
     }
 
@@ -35,6 +43,8 @@ public sealed class ApplicationSettingsConfigurationSource(
 public sealed class ApplicationSettingsConfigurationProvider(
 
     string connectionString,
+
+    DatabaseProvider provider,
 
     ISettingsSectionRegistry registry,
 
@@ -49,6 +59,8 @@ public sealed class ApplicationSettingsConfigurationProvider(
 
 
     private readonly string _connectionString = connectionString;
+
+    private readonly DatabaseProvider _provider = provider;
 
     private readonly ISettingsSectionRegistry _registry = registry;
 
@@ -82,7 +94,7 @@ public sealed class ApplicationSettingsConfigurationProvider(
 
         {
 
-            using var connection = new SqlConnection(_connectionString);
+            using var connection = CreateConnection();
 
             connection.Open();
 
@@ -92,9 +104,11 @@ public sealed class ApplicationSettingsConfigurationProvider(
 
             {
 
-                throw new InvalidOperationException(
+                throw new InvalidOperationException(_provider == DatabaseProvider.Postgres
 
-                    "Required table 'dbo.ApplicationSettings' was not found while loading DB-backed application settings.");
+                    ? "Required table 'ApplicationSettings' was not found while loading DB-backed application settings."
+
+                    : "Required table 'dbo.ApplicationSettings' was not found while loading DB-backed application settings.");
 
             }
 
@@ -102,7 +116,11 @@ public sealed class ApplicationSettingsConfigurationProvider(
 
             using var command = connection.CreateCommand();
 
-            command.CommandText = "SELECT SectionName, JsonValue FROM ApplicationSettings";
+            command.CommandText = _provider == DatabaseProvider.Postgres
+
+                ? "SELECT \"SectionName\", \"JsonValue\" FROM \"ApplicationSettings\""
+
+                : "SELECT SectionName, JsonValue FROM ApplicationSettings";
 
             using var reader = command.ExecuteReader();
 
@@ -192,6 +210,20 @@ public sealed class ApplicationSettingsConfigurationProvider(
 
 
 
+    private DbConnection CreateConnection() => _provider switch
+
+    {
+
+        DatabaseProvider.SqlServer => new SqlConnection(_connectionString),
+
+        DatabaseProvider.Postgres => new NpgsqlConnection(_connectionString),
+
+        _ => throw new InvalidOperationException($"Unsupported database provider '{_provider}'.")
+
+    };
+
+
+
     private string DescribeConnectionTarget()
 
     {
@@ -199,6 +231,22 @@ public sealed class ApplicationSettingsConfigurationProvider(
         try
 
         {
+
+            if (_provider == DatabaseProvider.Postgres)
+
+            {
+
+                var npgsqlBuilder = new NpgsqlConnectionStringBuilder(_connectionString);
+
+                var host = string.IsNullOrWhiteSpace(npgsqlBuilder.Host) ? "<unknown-server>" : npgsqlBuilder.Host;
+
+                var database = string.IsNullOrWhiteSpace(npgsqlBuilder.Database) ? "<unknown-database>" : npgsqlBuilder.Database;
+
+                return $"{host}/{database}";
+
+            }
+
+
 
             var builder = new SqlConnectionStringBuilder(_connectionString);
 
@@ -222,11 +270,23 @@ public sealed class ApplicationSettingsConfigurationProvider(
 
 
 
-    private static bool ApplicationSettingsTableExists(SqlConnection connection)
+    private bool ApplicationSettingsTableExists(DbConnection connection)
 
     {
 
         using var command = connection.CreateCommand();
+
+        if (_provider == DatabaseProvider.Postgres)
+
+        {
+
+            command.CommandText = "SELECT to_regclass('\"ApplicationSettings\"') IS NOT NULL";
+
+            return command.ExecuteScalar() is true;
+
+        }
+
+
 
         command.CommandText = "SELECT CASE WHEN OBJECT_ID('dbo.ApplicationSettings', 'U') IS NULL THEN 0 ELSE 1 END";
 
