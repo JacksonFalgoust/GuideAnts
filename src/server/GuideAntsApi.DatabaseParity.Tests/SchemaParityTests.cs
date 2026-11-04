@@ -134,13 +134,14 @@ public sealed class SchemaParityTests
     /// SQL Server checks a NO ACTION foreign key after every cascade of the DELETE. Postgres checks it in an AFTER
     /// trigger, which can run before a cascade of the same statement has removed the referencing rows:
     /// <list type="bullet">
-    /// <item>The triggers of one deleted row fire in trigger-name order, and the names embed OIDs, so their order
-    /// depends on creation order and on the OID counter.</item>
+    /// <item>The trigger events fire in queue order: row by row, and within one row in trigger-name order. The names
+    /// embed OIDs, so their order depends on creation order and on the OID counter.</item>
     /// <item>The events that a cascade queues fire after the events already queued, one cascade level at a time.</item>
     /// </list>
     /// So when a root delete reaches the referenced table at cascade depth p and the referencing table at depth d, the
-    /// check fires after the referencing rows are gone if d &lt;= p, in the same pass (in name order) if d = p + 1, and
-    /// before them if d &gt; p + 1. The foreign keys with d &gt; p for some root are DEFERRABLE INITIALLY DEFERRED on
+    /// check fires after the referencing rows are gone if d &lt;= p, and before them if d &gt; p + 1. If d = p + 1, the
+    /// check and the cascade are in the same pass and race in queue order: by trigger name when they belong to the same
+    /// row (UserRoles), by row order when they belong to two different rows (a guide and its crew member deleted together). The foreign keys with d &gt; p for some root are DEFERRABLE INITIALLY DEFERRED on
     /// Postgres (the Postgres baseline migration does this): a deferred NO ACTION check runs at commit, after every
     /// cascade, since Postgres never defers referential actions. Every other foreign key stays NOT DEFERRABLE, so its
     /// check keeps SQL Server's statement-time timing. SQL Server forbids multiple cascade paths, so a table has at most
