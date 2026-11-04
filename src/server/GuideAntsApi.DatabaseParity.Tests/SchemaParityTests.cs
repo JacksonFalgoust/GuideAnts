@@ -113,6 +113,11 @@ public sealed class SchemaParityTests
             "Indexes");
     }
 
+    /// <summary>
+    /// Deferrability is left out of the comparison: SQL Server has no deferrable constraints, and the Postgres
+    /// foreign keys that are deferred to match SQL Server's check timing are pinned by
+    /// <see cref="Postgres_defers_exactly_the_no_action_checks_a_cascade_of_the_same_delete_could_outrun"/>.
+    /// </summary>
     [TestMethod]
     public void Same_foreign_keys()
     {
@@ -123,6 +128,84 @@ public sealed class SchemaParityTests
         _sqlServer.ForeignKeys.Should().NotBeEmpty();
 
         ShouldMatch(Lines(_sqlServer), Lines(_postgres), "Foreign keys");
+    }
+
+    /// <summary>
+    /// SQL Server checks a NO ACTION foreign key after every cascade of the DELETE. Postgres checks it in an AFTER
+    /// trigger, which can run before a cascade of the same statement has removed the referencing rows:
+    /// <list type="bullet">
+    /// <item>The triggers of one deleted row fire in trigger-name order, and the names embed OIDs, so their order
+    /// depends on creation order and on the OID counter.</item>
+    /// <item>The events that a cascade queues fire after the events already queued, one cascade level at a time.</item>
+    /// </list>
+    /// So when a root delete reaches the referenced table at cascade depth p and the referencing table at depth d, the
+    /// check fires after the referencing rows are gone if d &lt;= p, in the same pass (in name order) if d = p + 1, and
+    /// before them if d &gt; p + 1. The foreign keys with d &gt; p for some root are DEFERRABLE INITIALLY DEFERRED on
+    /// Postgres (the Postgres baseline migration does this): a deferred NO ACTION check runs at commit, after every
+    /// cascade, since Postgres never defers referential actions. Every other foreign key stays NOT DEFERRABLE, so its
+    /// check keeps SQL Server's statement-time timing. SQL Server forbids multiple cascade paths, so a table has at most
+    /// one depth below a root.
+    /// </summary>
+    [TestMethod]
+    public void Postgres_defers_exactly_the_no_action_checks_a_cascade_of_the_same_delete_could_outrun()
+    {
+        const string NotDeferrable = "NOT DEFERRABLE";
+        static string Key(string table, string foreignKey) => $"{Name(table)}.{Name(foreignKey)}";
+
+        var cascadeChildren = _sqlServer.ForeignKeys
+            .Where(f => f.DeleteRule == "CASCADE")
+            .ToLookup(f => f.PrincipalTable, f => f.Table, StringComparer.Ordinal);
+
+        Dictionary<string, int> CascadeDepths(string root)
+        {
+            var depths = new Dictionary<string, int>(StringComparer.Ordinal) { [root] = 0 };
+            var queue = new Queue<string>([root]);
+            while (queue.TryDequeue(out var table))
+            {
+                foreach (var child in cascadeChildren[table])
+                {
+                    depths.TryAdd(child, depths[table] + 1).Should().BeTrue($"SQL Server allows one cascade path from {root} to {child}");
+                    queue.Enqueue(child);
+                }
+            }
+            return depths;
+        }
+
+        var depthsByRoot = _sqlServerTables.Select(t => CascadeDepths(t.Name)).ToList();
+        var mustDefer = new List<string>();
+        var alreadyOrdered = new List<string>();
+        foreach (var foreignKey in _sqlServer.ForeignKeys.Where(f => f.DeleteRule == "NO ACTION"))
+        {
+            var shadows = depthsByRoot
+                .Where(d => d.ContainsKey(foreignKey.PrincipalTable) && d.GetValueOrDefault(foreignKey.Table) > 0)
+                .Select(d => (Referenced: d[foreignKey.PrincipalTable], Referencing: d[foreignKey.Table]))
+                .ToList();
+
+            if (shadows.Any(s => s.Referencing > s.Referenced))
+            {
+                mustDefer.Add(Key(foreignKey.Table, foreignKey.Name));
+            }
+            else if (shadows.Count > 0)
+            {
+                alreadyOrdered.Add(Key(foreignKey.Table, foreignKey.Name));
+            }
+        }
+
+        // Pinned so that a model change that adds or removes such a shape is reviewed (parity report #19, #23 to #25).
+        mustDefer.Should().BeEquivalentTo(
+            Key("GuideMembers", "FK_GuideMembers_Assistants_AssistantId"),
+            Key("MessageAttachments", "FK_MessageAttachments_NotebookFiles_NotebookFileId"),
+            Key("UserRoles", "FK_UserRoles_Users_AssignedByUserId"));
+        alreadyOrdered.Should().BeEquivalentTo(
+            Key("AgentInvocations", "FK_AgentInvocations_AgentInvocations_ParentInvocationId"),
+            Key("ContentFileVersions", "FK_ContentFileVersions_ContentFileVersions_OriginVersionId"),
+            Key("NotebookConversationMessages", "FK_NotebookConversationMessages_ConversationTurns_NotebookConversationId_TurnIndex"));
+
+        _sqlServer.ForeignKeys.Should().OnlyContain(f => f.Deferrability == NotDeferrable);
+        ShouldMatch(
+            mustDefer.Select(k => $"{k}: DEFERRABLE INITIALLY DEFERRED"),
+            _postgres.ForeignKeys.Where(f => f.Deferrability != NotDeferrable).Select(f => $"{Key(f.Table, f.Name)}: {f.Deferrability}"),
+            "Deferred foreign keys");
     }
 
     [TestMethod]

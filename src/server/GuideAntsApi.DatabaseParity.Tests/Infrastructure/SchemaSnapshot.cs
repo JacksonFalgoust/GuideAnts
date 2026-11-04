@@ -19,13 +19,18 @@ public sealed record SchemaIndex(
     bool HasFilter);
 
 /// <param name="DeleteRule">The SQL-standard action: NO ACTION, RESTRICT, CASCADE, SET NULL or SET DEFAULT.</param>
+/// <param name="Deferrability">
+/// NOT DEFERRABLE, DEFERRABLE INITIALLY IMMEDIATE or DEFERRABLE INITIALLY DEFERRED. SQL Server has no deferrable
+/// constraints, so its foreign keys are all NOT DEFERRABLE.
+/// </param>
 public sealed record SchemaForeignKey(
     string Name,
     string Table,
     IReadOnlyList<string> Columns,
     string PrincipalTable,
     IReadOnlyList<string> PrincipalColumns,
-    string DeleteRule);
+    string DeleteRule,
+    string Deferrability);
 
 public sealed record SchemaTable(string Name, IReadOnlyList<SchemaColumn> Columns, IReadOnlyList<SchemaIndex> Indexes);
 
@@ -106,6 +111,7 @@ public sealed class SchemaSnapshot
             DeleteRule = catalog.DeleteRule(r.GetString(3)),
             Column = r.GetString(4),
             PrincipalColumn = r.GetString(5),
+            Deferrability = r.GetString(6),
         });
 
         var indexesByTable = indexColumns
@@ -139,7 +145,8 @@ public sealed class SchemaSnapshot
                 g.Select(c => c.Column).ToList(),
                 g.First().PrincipalTable,
                 g.Select(c => c.PrincipalColumn).ToList(),
-                g.First().DeleteRule))
+                g.First().DeleteRule,
+                g.First().Deferrability))
             .ToList();
 
         return new SchemaSnapshot(tables, views, foreignKeys);
@@ -186,7 +193,7 @@ public sealed class SchemaSnapshot
             ORDER BY t.name, i.name, ic.is_included_column, ic.key_ordinal, ic.index_column_id
             """,
         ForeignKeysSql: """
-            SELECT fk.name, tp.name, tr.name, fk.delete_referential_action_desc, cp.name, cr.name
+            SELECT fk.name, tp.name, tr.name, fk.delete_referential_action_desc, cp.name, cr.name, 'NOT DEFERRABLE'
             FROM sys.foreign_keys fk
             JOIN sys.tables tp ON tp.object_id = fk.parent_object_id
             JOIN sys.tables tr ON tr.object_id = fk.referenced_object_id
@@ -220,7 +227,12 @@ public sealed class SchemaSnapshot
             ORDER BY t.relname, i.relname, k.ord
             """,
         ForeignKeysSql: """
-            SELECT con.conname, t.relname, rt.relname, con.confdeltype::text, a.attname, ra.attname
+            SELECT con.conname, t.relname, rt.relname, con.confdeltype::text, a.attname, ra.attname,
+                CASE
+                    WHEN NOT con.condeferrable THEN 'NOT DEFERRABLE'
+                    WHEN con.condeferred THEN 'DEFERRABLE INITIALLY DEFERRED'
+                    ELSE 'DEFERRABLE INITIALLY IMMEDIATE'
+                END
             FROM pg_constraint con
             JOIN pg_class t ON t.oid = con.conrelid
             JOIN pg_class rt ON rt.oid = con.confrelid

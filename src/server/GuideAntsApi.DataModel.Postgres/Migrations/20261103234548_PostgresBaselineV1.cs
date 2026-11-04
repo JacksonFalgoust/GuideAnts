@@ -2540,6 +2540,25 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                 principalColumn: "Id",
                 onDelete: ReferentialAction.Cascade);
 
+            // Hand-written: SQL Server checks a NO ACTION foreign key after every cascade of the DELETE, so deleting a
+            // row whose cascades also remove the rows that reference it succeeds. Postgres checks it in a trigger that,
+            // for these three foreign keys, can fire before that cascade (same-row triggers fire in name order, and
+            // the names embed OIDs; a deeper cascade fires later), and the delete fails with 23503. Deferred, the
+            // check runs at commit, after every cascade (Postgres never defers referential actions), whatever the
+            // creation order:
+            // - UserRoles: a user can be its own assigner (the first admin); UserId cascades from Users.
+            // - GuideMembers: deleting a guide together with a crew member; GuideId cascades from Assistants.
+            // - MessageAttachments: deleting a notebook whose messages attach its files; the attachments are three
+            //   cascade levels below Notebooks, the files one.
+            // SchemaParityTests.Postgres_defers_exactly_the_no_action_checks_a_cascade_of_the_same_delete_could_outrun
+            // derives this list from the cascade graph.
+            migrationBuilder.Sql(
+                """
+                ALTER TABLE "GuideMembers" ALTER CONSTRAINT "FK_GuideMembers_Assistants_AssistantId" DEFERRABLE INITIALLY DEFERRED;
+                ALTER TABLE "MessageAttachments" ALTER CONSTRAINT "FK_MessageAttachments_NotebookFiles_NotebookFileId" DEFERRABLE INITIALLY DEFERRED;
+                ALTER TABLE "UserRoles" ALTER CONSTRAINT "FK_UserRoles_Users_AssignedByUserId" DEFERRABLE INITIALLY DEFERRED;
+                """);
+
             // Hand-written: the model maps ConversationCurrentState to a view, which EF does not create.
             // Same definition as the SQL Server view (migration RemoveNotebookConversationModelDeploymentOverride).
             migrationBuilder.Sql(
