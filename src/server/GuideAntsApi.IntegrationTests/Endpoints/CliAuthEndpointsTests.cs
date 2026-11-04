@@ -295,12 +295,14 @@ public class CliAuthEndpointsTests
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-        await db.Database.ExecuteSqlRawAsync("DELETE FROM [CliAuthSessions];");
-        await db.Database.ExecuteSqlRawAsync("UPDATE [NotebookConversationMessages] SET [UserId] = NULL, [LastEditedByUserId] = NULL;");
-        await db.Database.ExecuteSqlRawAsync("UPDATE [MessageEditHistories] SET [FirstEditedByUserId] = NULL;");
-        await db.Database.ExecuteSqlRawAsync("DELETE FROM [UserProjectContextOption];");
-        await db.Database.ExecuteSqlRawAsync("DELETE FROM [UserRoles];");
-        await db.Database.ExecuteSqlRawAsync("DELETE FROM [Users];");
+        await db.CliAuthSessions.ExecuteDeleteAsync();
+        await db.NotebookConversationMessages.ExecuteUpdateAsync(set => set
+            .SetProperty(m => m.UserId, (Guid?)null)
+            .SetProperty(m => m.LastEditedByUserId, (Guid?)null));
+        await db.MessageEditHistories.ExecuteUpdateAsync(set => set.SetProperty(h => h.FirstEditedByUserId, (Guid?)null));
+        await db.UserProjectContextOptions.ExecuteDeleteAsync();
+        await db.UserRoles.ExecuteDeleteAsync();
+        await db.Users.ExecuteDeleteAsync();
     }
 
     private sealed record CreateSessionResponse(string SessionId, string DeviceSecret, DateTime ExpiresAt);

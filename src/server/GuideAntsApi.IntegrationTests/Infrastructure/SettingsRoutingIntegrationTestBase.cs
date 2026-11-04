@@ -132,22 +132,25 @@ public abstract class SettingsRoutingIntegrationTestBase : IAsyncDisposable
     {
         using var scope = SharedFactory!.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        await db.Database.ExecuteSqlRawAsync("DELETE FROM ApplicationSettings WHERE SectionName = 'ServiceModes';");
+        await db.ApplicationSettings.Where(s => s.SectionName == "ServiceModes").ExecuteDeleteAsync();
 
         // Assistants reference Models via ModelId and must be removed before Models.
         // Other test classes share this DB and may leave notebooks / conversation
         // messages that reference Assistants via Restrict FKs — clear those first,
         // but keep project + notebook rows intact.
-        await db.Database.ExecuteSqlRawAsync("UPDATE Notebooks SET GuideId = NULL WHERE GuideId IS NOT NULL;");
-        await db.Database.ExecuteSqlRawAsync(
-            "UPDATE NotebookConversationMessages SET AssistantId = NULL WHERE AssistantId IS NOT NULL;");
-        await db.Database.ExecuteSqlRawAsync("DELETE FROM PublishedGuides;");
-        await db.Database.ExecuteSqlRawAsync("DELETE FROM GuideMembers;");
-        await db.Database.ExecuteSqlRawAsync("UPDATE AgentInvocations SET ParentInvocationId = NULL;");
-        await db.Database.ExecuteSqlRawAsync("DELETE FROM AgentInvocationMessages;");
-        await db.Database.ExecuteSqlRawAsync("DELETE FROM AgentInvocations;");
-        await db.Database.ExecuteSqlRawAsync("DELETE FROM Assistants;");
-        await db.Database.ExecuteSqlRawAsync("DELETE FROM Models;");
+        await db.Notebooks
+            .Where(n => n.GuideId != null)
+            .ExecuteUpdateAsync(set => set.SetProperty(n => n.GuideId, (Guid?)null));
+        await db.NotebookConversationMessages
+            .Where(m => m.AssistantId != null)
+            .ExecuteUpdateAsync(set => set.SetProperty(m => m.AssistantId, (Guid?)null));
+        await db.PublishedGuides.ExecuteDeleteAsync();
+        await db.GuideMembers.ExecuteDeleteAsync();
+        await db.AgentInvocations.ExecuteUpdateAsync(set => set.SetProperty(a => a.ParentInvocationId, (Guid?)null));
+        await db.AgentInvocationMessages.ExecuteDeleteAsync();
+        await db.AgentInvocations.ExecuteDeleteAsync();
+        await db.Assistants.ExecuteDeleteAsync();
+        await db.Models.ExecuteDeleteAsync();
     }
 
     /// <summary>

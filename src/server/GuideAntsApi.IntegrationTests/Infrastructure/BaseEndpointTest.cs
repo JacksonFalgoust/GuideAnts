@@ -13,129 +13,130 @@ public abstract class BaseEndpointTest : BaseIntegrationTest
         using var scope = SharedFactory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-        // Use SQL commands for cleaner deletion to avoid EF cascade issues
+        // Use set-based deletes (ExecuteDeleteAsync, no change tracking) to avoid EF cascade issues; they
+        // translate on both SQL Server and Postgres. Each inner join keeps a row only when its parent chain
+        // up to Projects exists, as the DELETE ... INNER JOIN statements this replaces did.
         // Delete in dependency order to avoid foreign key violations
-        
+
         // First delete message edit histories (deepest level)
-        await dbContext.Database.ExecuteSqlRawAsync(
-            @"DELETE meh FROM MessageEditHistories meh 
-              INNER JOIN NotebookConversationMessages ncm ON meh.MessageId = ncm.Id
-              INNER JOIN NotebookConversations nc ON ncm.NotebookConversationId = nc.Id
-              INNER JOIN Notebooks n ON nc.NotebookId = n.Id
-              INNER JOIN Projects p ON n.ProjectId = p.Id
-              ;");
+        await (
+            from meh in dbContext.MessageEditHistories
+            join ncm in dbContext.NotebookConversationMessages on meh.MessageId equals ncm.Id
+            join nc in dbContext.NotebookConversations on ncm.NotebookConversationId equals nc.Id
+            join n in dbContext.Notebooks on nc.NotebookId equals n.Id
+            join p in dbContext.Projects on n.ProjectId equals p.Id
+            select meh).ExecuteDeleteAsync();
 
         // Delete conversation messages
-        await dbContext.Database.ExecuteSqlRawAsync(
-            @"DELETE ncm FROM NotebookConversationMessages ncm 
-              INNER JOIN NotebookConversations nc ON ncm.NotebookConversationId = nc.Id
-              INNER JOIN Notebooks n ON nc.NotebookId = n.Id
-              INNER JOIN Projects p ON n.ProjectId = p.Id
-              ;");
+        await (
+            from ncm in dbContext.NotebookConversationMessages
+            join nc in dbContext.NotebookConversations on ncm.NotebookConversationId equals nc.Id
+            join n in dbContext.Notebooks on nc.NotebookId equals n.Id
+            join p in dbContext.Projects on n.ProjectId equals p.Id
+            select ncm).ExecuteDeleteAsync();
 
-        // Delete conversation turns  
-        await dbContext.Database.ExecuteSqlRawAsync(
-            @"DELETE ct FROM ConversationTurns ct 
-              INNER JOIN NotebookConversations nc ON ct.NotebookConversationId = nc.Id
-              INNER JOIN Notebooks n ON nc.NotebookId = n.Id
-              INNER JOIN Projects p ON n.ProjectId = p.Id
-              ;");
+        // Delete conversation turns
+        await (
+            from ct in dbContext.ConversationTurns
+            join nc in dbContext.NotebookConversations on ct.NotebookConversationId equals nc.Id
+            join n in dbContext.Notebooks on nc.NotebookId equals n.Id
+            join p in dbContext.Projects on n.ProjectId equals p.Id
+            select ct).ExecuteDeleteAsync();
 
-        // Delete file lineage events
-        await dbContext.Database.ExecuteSqlRawAsync(
-            @"DELETE fle FROM FileLineageEvents fle 
-              INNER JOIN Notebooks n ON fle.NotebookId = n.Id
-              INNER JOIN Projects p ON n.ProjectId = p.Id
-              ;");
+        // Delete file lineage events (NotebookId is nullable; the inner join skips rows without a notebook)
+        await (
+            from fle in dbContext.FileLineageEvents
+            join n in dbContext.Notebooks on fle.NotebookId equals (Guid?)n.Id
+            join p in dbContext.Projects on n.ProjectId equals p.Id
+            select fle).ExecuteDeleteAsync();
 
         // Delete notebook files
-        await dbContext.Database.ExecuteSqlRawAsync(
-            @"DELETE nf FROM NotebookFiles nf 
-              INNER JOIN Notebooks n ON nf.NotebookId = n.Id
-              INNER JOIN Projects p ON n.ProjectId = p.Id
-              ;");
+        await (
+            from nf in dbContext.NotebookFiles
+            join n in dbContext.Notebooks on nf.NotebookId equals n.Id
+            join p in dbContext.Projects on n.ProjectId equals p.Id
+            select nf).ExecuteDeleteAsync();
 
         // Delete notebook conversations
-        await dbContext.Database.ExecuteSqlRawAsync(
-            @"DELETE nc FROM NotebookConversations nc 
-              INNER JOIN Notebooks n ON nc.NotebookId = n.Id
-              INNER JOIN Projects p ON n.ProjectId = p.Id
-              ;");
+        await (
+            from nc in dbContext.NotebookConversations
+            join n in dbContext.Notebooks on nc.NotebookId equals n.Id
+            join p in dbContext.Projects on n.ProjectId equals p.Id
+            select nc).ExecuteDeleteAsync();
 
 
         // Delete content file versions FIRST because they have FK to ProjectFolders
-        await dbContext.Database.ExecuteSqlRawAsync(
-            @"DELETE cfv FROM ContentFileVersions cfv 
-              INNER JOIN ContentFiles cf ON cfv.ContentFileId = cf.Id
-              INNER JOIN Projects p ON cf.ProjectId = p.Id
-              ;");
+        await (
+            from cfv in dbContext.ContentFileVersions
+            join cf in dbContext.ContentFiles on cfv.ContentFileId equals cf.Id
+            join p in dbContext.Projects on cf.ProjectId equals p.Id
+            select cfv).ExecuteDeleteAsync();
 
         // Delete content files
-        await dbContext.Database.ExecuteSqlRawAsync(
-            @"DELETE cf FROM ContentFiles cf 
-              INNER JOIN Projects p ON cf.ProjectId = p.Id
-              ;");
-              
+        await (
+            from cf in dbContext.ContentFiles
+            join p in dbContext.Projects on cf.ProjectId equals p.Id
+            select cf).ExecuteDeleteAsync();
+
         // Delete project folders
-        await dbContext.Database.ExecuteSqlRawAsync(
-            @"DELETE pf FROM ProjectFolders pf 
-              INNER JOIN Projects p ON pf.ProjectId = p.Id
-              ;");
+        await (
+            from pf in dbContext.ProjectFolders
+            join p in dbContext.Projects on pf.ProjectId equals p.Id
+            select pf).ExecuteDeleteAsync();
 
         // Delete host folder mount links and mounts
-        await dbContext.Database.ExecuteSqlRawAsync(
-            @"DELETE hfl FROM HostFolderMountLinks hfl
-              INNER JOIN HostFolderMounts hfm ON hfl.HostFolderMountId = hfm.Id
-              INNER JOIN Projects p ON hfm.ProjectId = p.Id
-              ;");
+        await (
+            from hfl in dbContext.HostFolderMountLinks
+            join hfm in dbContext.HostFolderMounts on hfl.HostFolderMountId equals hfm.Id
+            join p in dbContext.Projects on hfm.ProjectId equals p.Id
+            select hfl).ExecuteDeleteAsync();
 
-        await dbContext.Database.ExecuteSqlRawAsync(
-            @"DELETE hfm FROM HostFolderMounts hfm
-              INNER JOIN Projects p ON hfm.ProjectId = p.Id
-              ;");
+        await (
+            from hfm in dbContext.HostFolderMounts
+            join p in dbContext.Projects on hfm.ProjectId equals p.Id
+            select hfm).ExecuteDeleteAsync();
 
         // Delete published guides before notebooks (FK_PublishedGuides_Notebooks_NotebookId).
         // The system-guide seeder publishes the seeded guides, so these rows reference
         // system-project notebooks and would block the notebook delete below.
-        await dbContext.Database.ExecuteSqlRawAsync(@"DELETE FROM PublishedGuides;");
+        await dbContext.PublishedGuides.ExecuteDeleteAsync();
 
         // Delete scheduled job runs and jobs before notebooks (FK_ProjectScheduledJobs_Notebooks_NotebookId).
-        await dbContext.Database.ExecuteSqlRawAsync(
-            @"DELETE psjr FROM ProjectScheduledJobRuns psjr
-              INNER JOIN ProjectScheduledJobs psj ON psjr.ScheduledJobId = psj.Id
-              INNER JOIN Projects p ON psj.ProjectId = p.Id
-              ;");
+        await (
+            from psjr in dbContext.ProjectScheduledJobRuns
+            join psj in dbContext.ProjectScheduledJobs on psjr.ScheduledJobId equals psj.Id
+            join p in dbContext.Projects on psj.ProjectId equals p.Id
+            select psjr).ExecuteDeleteAsync();
 
-        await dbContext.Database.ExecuteSqlRawAsync(
-            @"DELETE psj FROM ProjectScheduledJobs psj
-              INNER JOIN Projects p ON psj.ProjectId = p.Id
-              ;");
+        await (
+            from psj in dbContext.ProjectScheduledJobs
+            join p in dbContext.Projects on psj.ProjectId equals p.Id
+            select psj).ExecuteDeleteAsync();
 
         // Delete notebooks
-        await dbContext.Database.ExecuteSqlRawAsync(
-            @"DELETE n FROM Notebooks n 
-              INNER JOIN Projects p ON n.ProjectId = p.Id
-              ;");
+        await (
+            from n in dbContext.Notebooks
+            join p in dbContext.Projects on n.ProjectId equals p.Id
+            select n).ExecuteDeleteAsync();
 
         // Delete links
-        await dbContext.Database.ExecuteSqlRawAsync(
-            @"DELETE l FROM Links l 
-              INNER JOIN Projects p ON l.ProjectId = p.Id
-              ;");
+        await (
+            from l in dbContext.Links
+            join p in dbContext.Projects on l.ProjectId equals p.Id
+            select l).ExecuteDeleteAsync();
 
         // Delete semi-structured data
-        await dbContext.Database.ExecuteSqlRawAsync(
-            @"DELETE ssd FROM SemiStructuredProjectDatas ssd 
-              INNER JOIN Projects p ON ssd.ProjectId = p.Id
-              ;");
+        await (
+            from ssd in dbContext.SemiStructuredProjectDatas
+            join p in dbContext.Projects on ssd.ProjectId equals p.Id
+            select ssd).ExecuteDeleteAsync();
 
         // Delete projects
-        await dbContext.Database.ExecuteSqlRawAsync(
-            @"DELETE FROM Projects;");
+        await dbContext.Projects.ExecuteDeleteAsync();
 
         // Delete test users
-        await dbContext.Database.ExecuteSqlRawAsync(
-            @"DELETE FROM Users 
-              WHERE Email LIKE '%@example.com%' OR Email LIKE '%test%'");
+        await dbContext.Users
+            .Where(u => EF.Functions.Like(u.Email, "%@example.com%") || EF.Functions.Like(u.Email, "%test%"))
+            .ExecuteDeleteAsync();
     }
-} 
+}

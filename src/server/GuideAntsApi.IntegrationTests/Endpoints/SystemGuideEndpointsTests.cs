@@ -43,14 +43,17 @@ public sealed class SystemGuideEndpointsTests : BaseEndpointTest
             var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             // System-guide fixture cleanup (FK order). Without this, fixed assistant names
             // collide on IX_Assistants_Name across tests in this class.
-            await db.Database.ExecuteSqlRawAsync("DELETE FROM PublishedGuides;");
-            await db.Database.ExecuteSqlRawAsync(
-                $"DELETE FROM ApplicationSettings WHERE SectionName = '{GuideAntsSystemSettings.SectionName}';");
-            await db.Database.ExecuteSqlRawAsync(
-                "DELETE FROM Notebooks WHERE ProjectId IN (SELECT Id FROM Projects WHERE IsSystemProject = 1);");
-            await db.Database.ExecuteSqlRawAsync(
-                "DELETE FROM Assistants WHERE Name IN (N'GuideAnts Guide', N'GuideAnts Guide Admin');");
-            await db.Database.ExecuteSqlRawAsync("DELETE FROM Projects WHERE IsSystemProject = 1;");
+            await db.PublishedGuides.ExecuteDeleteAsync();
+            await db.ApplicationSettings
+                .Where(s => s.SectionName == GuideAntsSystemSettings.SectionName)
+                .ExecuteDeleteAsync();
+            await db.Notebooks
+                .Where(n => db.Projects.Where(p => p.IsSystemProject).Select(p => p.Id).Contains(n.ProjectId))
+                .ExecuteDeleteAsync();
+            await db.Assistants
+                .Where(a => a.Name == "GuideAnts Guide" || a.Name == "GuideAnts Guide Admin")
+                .ExecuteDeleteAsync();
+            await db.Projects.Where(p => p.IsSystemProject).ExecuteDeleteAsync();
         }
 
         await base.CleanDatabaseAsync();

@@ -36,7 +36,7 @@ public sealed class PublishedGuidesAppIdentityEndpointsTests : BaseEndpointTest
         {
             using var scope = SharedFactory.Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-            await db.Database.ExecuteSqlRawAsync("DELETE FROM PublishedGuides;");
+            await db.PublishedGuides.ExecuteDeleteAsync();
         }
 
         await base.CleanDatabaseAsync();

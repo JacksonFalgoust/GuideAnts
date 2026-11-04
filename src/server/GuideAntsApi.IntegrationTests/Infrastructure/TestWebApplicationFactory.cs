@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using GuideAntsApi.DataModel;
+using GuideAntsApi.DataModel.Database;
 using GuideAntsApi.Options;
 using GuideAntsApi.Services.Auth;
 using GuideAntsApi.Services.Bootstrap;
@@ -19,11 +20,24 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>, IAsyncD
 {
     private const string ConnectionStringEnvColon = "ConnectionStrings:DefaultConnection";
     private const string ConnectionStringEnvDoubleUnderscore = "ConnectionStrings__DefaultConnection";
+    private const string ProviderEnvColon = DatabaseProviderSettings.ConfigurationKey;
+    private const string ProviderEnvDoubleUnderscore = "Database__Provider";
+
+    /// <summary>
+    /// The host registers <see cref="ApplicationDbContext"/> twice (the scoped context, then the pooled factory), and
+    /// EF Core composes every registration's options, so the pooled factory's tuning (300 s timeout) is what host
+    /// contexts end up with. This registration re-applies that tuning and only swaps in the container connection string.
+    /// </summary>
+    private static readonly DbProviderTuning HostContextTuning =
+        new(CommandTimeoutSeconds: 300, UseVectorSearch: true, ExplicitSingleQuery: true);
 
     private bool _initialized = false;
     private string? _connectionString;
+    private DatabaseProvider _provider;
     private string? _priorConnectionStringColon;
     private string? _priorConnectionStringDoubleUnderscore;
+    private string? _priorProviderColon;
+    private string? _priorProviderDoubleUnderscore;
 
     public async Task InitializeAsync()
     {
@@ -31,6 +45,7 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>, IAsyncD
         {
             await TestContainerManager.Instance.EnsureInitializedAsync();
             _connectionString = await TestContainerManager.Instance.GetConnectionStringAsync();
+            _provider = TestContainerManager.Instance.Provider;
             if (string.IsNullOrWhiteSpace(_connectionString))
             {
                 throw new InvalidOperationException("Test SQL connection string was not initialized.");
@@ -56,6 +71,13 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>, IAsyncD
         Environment.SetEnvironmentVariable(ConnectionStringEnvDoubleUnderscore, _connectionString);
         Environment.SetEnvironmentVariable(ConnectionStringEnvColon, _connectionString);
 
+        // Same for the provider: host startup reads configuration, and code paths that build their own context
+        // (DatabaseProviderSettings.FromEnvironment) read the environment.
+        _priorProviderColon ??= Environment.GetEnvironmentVariable(ProviderEnvColon);
+        _priorProviderDoubleUnderscore ??= Environment.GetEnvironmentVariable(ProviderEnvDoubleUnderscore);
+        Environment.SetEnvironmentVariable(ProviderEnvDoubleUnderscore, _provider.ToString());
+        Environment.SetEnvironmentVariable(ProviderEnvColon, _provider.ToString());
+
         builder.ConfigureAppConfiguration((context, config) =>
         {
             var testProjectDir = GetTestProjectDirectory();
@@ -75,6 +97,7 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>, IAsyncD
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:DefaultConnection"] = _connectionString,
+                [DatabaseProviderSettings.ConfigurationKey] = _provider.ToString(),
                 ["KernelMemory:BaseUrl"] = "http://localhost:9001",
                 ["NOTEBOOK_TEMPLATES_BASE_FOLDER_PATH"] = Path.GetFullPath(Path.Combine(testProjectDir, "..", "NotebookTemplates")),
                 ["Jwt:Issuer"] = IntegrationTestAuthHandler.JwtIssuer,
@@ -101,7 +124,7 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>, IAsyncD
 
             // Add DB context using container connection
             services.AddDbContext<ApplicationDbContext>(options =>
-                options.UseSqlServer(_connectionString), 
+                ApplicationDbContextOptions.Configure(options, _provider, _connectionString!, HostContextTuning),
                 contextLifetime: ServiceLifetime.Scoped, 
                 optionsLifetime: ServiceLifetime.Singleton);
 
@@ -181,6 +204,8 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>, IAsyncD
     {
         Environment.SetEnvironmentVariable(ConnectionStringEnvColon, _priorConnectionStringColon);
         Environment.SetEnvironmentVariable(ConnectionStringEnvDoubleUnderscore, _priorConnectionStringDoubleUnderscore);
+        Environment.SetEnvironmentVariable(ProviderEnvColon, _priorProviderColon);
+        Environment.SetEnvironmentVariable(ProviderEnvDoubleUnderscore, _priorProviderDoubleUnderscore);
         await base.DisposeAsync();
     }
 

@@ -22,6 +22,9 @@ public sealed class ConversationPersistenceMarsSqlIntegrationTests : BaseEndpoin
     [TestMethod]
     public async Task Repeated_streaming_writes_do_not_trigger_mars_savepoint_warning()
     {
+        // MARS and its savepoint warning exist only in SqlClient.
+        DatabaseTestProvider.RequireSqlServer();
+
         var (connectionString, conversationId, turnId, executionId, _) = await SeedScenarioAsync();
 
         var services = new ServiceCollection();
