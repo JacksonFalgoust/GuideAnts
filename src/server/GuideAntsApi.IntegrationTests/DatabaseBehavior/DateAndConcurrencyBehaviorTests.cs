@@ -26,8 +26,12 @@ namespace GuideAntsApi.IntegrationTests.DatabaseBehavior;
 /// in.</item>
 /// <item>Postgres <c>text</c> can't hold U+0000; on Postgres it is stored as U+FFFD (accepted difference).</item>
 /// <item>A string longer than its column fails on both providers; nothing truncates it.</item>
-/// <item>SQL Server <c>rowversion</c> becomes the Postgres <c>xmin</c> system column (4 bytes instead of 8, and it
-/// changes once per transaction rather than once per statement).</item>
+/// <item>SQL Server <c>rowversion</c> becomes the Postgres <c>xmin</c> system column: 4 bytes instead of 8, and it
+/// changes once per transaction or savepoint rather than once per statement. EF puts every <c>SaveChanges</c> inside a
+/// user transaction in its own savepoint (unless auto-savepoints are off), so tracked saves still get a new token every
+/// time; only set-based updates without a savepoint between them share one.</item>
+/// <item>Column defaults (<c>GETUTCDATE()</c> on SQL Server, <c>statement_timestamp()</c> on Postgres) are evaluated
+/// per statement on both, not once per transaction.</item>
 /// </list>
 /// The DB tests use their own contexts on the suite's database; only <see cref="Settings_endpoint_rejects_stale_row_version"/>
 /// goes through the web host.
@@ -186,9 +190,64 @@ public sealed class DateAndConcurrencyBehaviorTests : BaseIntegrationTest
         stored.Created.Should().Be(DateTime.MaxValue);
         stored.LastLoginAt.Should().Be(DateTime.MinValue);
         (await read.Users.CountAsync(u => u.Id == max.Id && u.Created == DateTime.MaxValue)).Should().Be(1);
+
+        // Accepted difference: in the database itself Postgres holds infinity / -infinity, SQL Server the real dates, so
+        // date arithmetic written in SQL treats them differently.
+        var id = max.Id;
+        var raw = IsPostgres
+            ? await read.Database.SqlQuery<string>(
+                $"""SELECT "Created"::text || ' ' || "LastLoginAt"::text AS "Value" FROM "Users" WHERE "Id" = {id}""").SingleAsync()
+            : await read.Database.SqlQuery<string>(
+                $"SELECT CONVERT(varchar(30), Created, 126) + ' ' + CONVERT(varchar(30), LastLoginAt, 126) AS Value FROM Users WHERE Id = {id}").SingleAsync();
+        raw.Should().Be(IsPostgres ? "infinity -infinity" : "9999-12-31T23:59:59.9999999 0001-01-01T00:00:00");
+    }
+
+    /// <summary>
+    /// <c>GETUTCDATE()</c> is evaluated per statement; so is Postgres' <c>statement_timestamp()</c>, while <c>now()</c>
+    /// is the transaction's start time. Two rows inserted by two saves in one transaction, both taking the column
+    /// default, get different timestamps on both providers.
+    /// </summary>
+    [TestMethod]
+    public async Task Column_defaults_are_evaluated_per_statement()
+    {
+        var first = NewUser();
+        var second = NewUser();
+        first.Created = default;
+        second.Created = default;
+
+        await using (var db = CreateContext())
+        {
+            await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+            {
+                await using var transaction = await db.Database.BeginTransactionAsync();
+                db.Users.Add(first);
+                await db.SaveChangesAsync();
+                await Task.Delay(50);
+                db.Users.Add(second);
+                await db.SaveChangesAsync();
+                await transaction.CommitAsync();
+            });
+        }
+
+        // The database filled in the defaults, and EF read them back.
+        first.Created.Should().NotBe(default);
+        second.Created.Should().NotBe(default);
+        second.Created.Should().BeAfter(first.Created);
+
+        await using var read = CreateContext();
+        var stored = await read.Users.AsNoTracking()
+            .Where(u => u.Id == first.Id || u.Id == second.Id)
+            .ToDictionaryAsync(u => u.Id, u => u.Created);
+        stored[first.Id].Ticks.Should().Be(first.Created.Ticks);
+        stored[second.Id].Should().BeAfter(stored[first.Id]);
     }
 
     /// <summary>Review Focus #4: parameters whose Kind is not UTC compare by their raw ticks, as on SQL Server.</summary>
+    /// <remarks>
+    /// The Kind tests only tell "raw ticks" from <c>ToUniversalTime</c> on a host whose time zone is not UTC (such as a
+    /// developer machine): on a UTC host, CI's Linux runners included, both give the same ticks. There they still prove
+    /// that a non-UTC Kind doesn't throw.
+    /// </remarks>
     [TestMethod]
     public async Task Unspecified_and_Local_query_parameters_compare_raw_ticks()
     {
@@ -205,14 +264,18 @@ public sealed class DateAndConcurrencyBehaviorTests : BaseIntegrationTest
         var users = db.Users.Where(u => u.Id == user);
         (await users.CountAsync(u => u.Created >= from)).Should().Be(1);
         (await users.CountAsync(u => u.Created >= fromLocal)).Should().Be(1);
-        // Raw ticks: a Local value with the stored ticks is equal, whatever the machine's time zone.
+        // Raw ticks: a Local value with the stored ticks is equal, whatever the machine's time zone (only observable
+        // on a non-UTC host; see the remarks).
         (await users.CountAsync(u => u.Created == sameUnspecified)).Should().Be(1);
         (await users.CountAsync(u => u.Created == sameLocal)).Should().Be(1);
         (await users.CountAsync(u => u.LastLoginAt == nullableLocal)).Should().Be(0);
         (await users.CountAsync(u => u.Created > sameLocal)).Should().Be(0);
     }
 
-    /// <summary>Constants are written into the SQL as literals rather than sent as parameters.</summary>
+    /// <summary>
+    /// Constants are written into the SQL as literals rather than sent as parameters. As above, raw ticks vs
+    /// <c>ToUniversalTime</c> is only observable on a non-UTC host.
+    /// </summary>
     [TestMethod]
     public async Task Unspecified_and_Local_query_constants_compare_raw_ticks()
     {
@@ -227,7 +290,8 @@ public sealed class DateAndConcurrencyBehaviorTests : BaseIntegrationTest
 
     /// <summary>
     /// <c>ExecuteUpdate</c> bypasses the SaveChanges guard (which rejects Local values), so SQL Server stores the raw
-    /// ticks of whatever it is given. Postgres stores the same ticks.
+    /// ticks of whatever it is given. Postgres stores the same ticks. As above, raw ticks vs <c>ToUniversalTime</c> is
+    /// only observable on a non-UTC host.
     /// </summary>
     [TestMethod]
     public async Task Unspecified_and_Local_ExecuteUpdate_values_store_raw_ticks()
@@ -276,6 +340,37 @@ public sealed class DateAndConcurrencyBehaviorTests : BaseIntegrationTest
         (await db.NotebookConversationMessages.CountAsync(m => m.NotebookConversationId == conversationId)).Should().Be(2);
     }
 
+    /// <summary>
+    /// Accepted difference: a lower-sequence message less than a microsecond later than a stored higher-sequence one
+    /// (the two timestamps are equal once stored on Postgres) is accepted on Postgres and rejected on SQL Server.
+    /// </summary>
+    [TestMethod]
+    public async Task Message_ordering_check_accepts_a_sub_microsecond_inversion_on_postgres_only()
+    {
+        var (conversationId, _) = await SeedConversationAsync(messageSequence: 1, created: SevenDigitInstant, content: "second");
+
+        await using var db = CreateContext();
+        db.NotebookConversationMessages.Add(new NotebookConversationMessage
+        {
+            NotebookConversationId = conversationId,
+            Role = ChatRole.User,
+            Content = "first",
+            TurnIndex = 0,
+            MessageSequence = 0,
+            Created = SevenDigitInstant.AddTicks(2),
+        });
+
+        var save = () => db.SaveChangesAsync();
+        if (IsPostgres)
+        {
+            await save.Should().NotThrowAsync();
+        }
+        else
+        {
+            await save.Should().ThrowAsync<InvalidOperationException>().WithMessage("*Message timestamps must respect sequence order*");
+        }
+    }
+
     /// <summary>A genuinely later timestamp on a lower sequence is still rejected on both providers.</summary>
     [TestMethod]
     public async Task Message_ordering_check_still_rejects_a_later_timestamp()
@@ -313,11 +408,11 @@ public sealed class DateAndConcurrencyBehaviorTests : BaseIntegrationTest
     }
 
     /// <summary>
-    /// A NUL in a unique, case-insensitive key column (<c>Users.Email</c>) and in a query parameter: the save and the
+    /// A NUL in a column with a unique, case-insensitive index (<c>Users.Email</c>) and in a query parameter: the save and the
     /// lookup work on both providers, and case still doesn't matter.
     /// </summary>
     [TestMethod]
-    public async Task Nul_characters_in_a_key_column_and_a_parameter()
+    public async Task Nul_characters_in_a_unique_indexed_column_and_a_parameter()
     {
         var userId = Guid.NewGuid();
         var email = $"nul\u0000{userId:N}@example.com";
@@ -524,7 +619,7 @@ public sealed class DateAndConcurrencyBehaviorTests : BaseIntegrationTest
     /// with one new token and SQL Server with two. A token read before the transaction conflicts after it on both.
     /// </summary>
     [TestMethod]
-    public async Task RowVersion_changes_once_per_transaction_for_set_based_updates_on_postgres()
+    public async Task Two_set_based_updates_in_one_transaction_give_one_token_on_postgres_and_two_on_sql_server()
     {
         var section = await SeedSettingAsync();
         var before = Convert.FromBase64String(await StoredRowVersionAsync(section));

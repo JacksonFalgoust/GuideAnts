@@ -50,7 +50,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<int>("Depth")
                         .HasColumnType("integer");
@@ -137,7 +137,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("FunctionName")
                         .HasMaxLength(255)
@@ -176,7 +176,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("CreatedUtc")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("JsonValue")
                         .IsRequired()
@@ -197,7 +197,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("UpdatedUtc")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.HasKey("SectionName");
 
@@ -225,7 +225,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("DefaultAssistant")
                         .HasMaxLength(255)
@@ -344,7 +344,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("HeaderName")
                         .HasMaxLength(100)
@@ -392,7 +392,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.HasKey("AssistantAuthProviderId", "Scope");
 
@@ -412,7 +412,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("Value")
                         .HasMaxLength(1024)
@@ -436,7 +436,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<int>("OrderIndex")
                         .HasColumnType("integer");
@@ -475,7 +475,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("FolderKind")
                         .IsRequired()
@@ -520,7 +520,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text")
@@ -565,7 +565,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("Method")
                         .IsRequired()
@@ -635,7 +635,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -681,7 +681,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("Description")
                         .IsRequired()
@@ -723,7 +723,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.HasKey("AssistantId", "ToolId");
 
@@ -780,7 +780,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("DocumentId")
                         .IsRequired()
@@ -843,7 +843,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text")
@@ -901,7 +901,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("FileName")
                         .IsRequired()
@@ -971,7 +971,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                 {
                     b.Property<DateTime>("Created")
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("CurrentAssistantName")
                         .HasColumnType("text")
@@ -1071,7 +1071,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<Guid?>("ExecutionId")
                         .IsConcurrencyToken()
@@ -1093,7 +1093,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("LastUpdated")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("ModelDeploymentId")
                         .HasMaxLength(255)
@@ -1172,7 +1172,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<Guid>("NotebookConversationId")
                         .HasColumnType("uuid");
@@ -1191,7 +1191,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Updated")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.HasKey("Id");
 
@@ -1283,7 +1283,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("Host")
                         .IsRequired()
@@ -1323,7 +1323,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<DateTime>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
@@ -1349,7 +1349,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Updated")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
@@ -1428,7 +1428,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<int?>("DisplayOrder")
                         .HasColumnType("integer");
@@ -1463,7 +1463,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("CreatedUtc")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("CredentialRef")
                         .HasMaxLength(512)
@@ -1529,7 +1529,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("UpdatedUtc")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.HasKey("Id");
 
@@ -1617,7 +1617,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text")
@@ -1686,7 +1686,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid");
@@ -1728,7 +1728,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("CreatedUtc")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("ManagementMode")
                         .IsRequired()
@@ -1795,7 +1795,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("UpdatedUtc")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.HasKey("ModelId");
 
@@ -1822,7 +1822,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("CreatedUtc")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("CurrentStep")
                         .HasMaxLength(64)
@@ -1883,7 +1883,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("UpdatedUtc")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.HasKey("OperationId");
 
@@ -1909,7 +1909,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<Guid>("MessageId")
                         .HasColumnType("uuid");
@@ -1994,7 +1994,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1024)
@@ -2071,7 +2071,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
@@ -2144,7 +2144,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<Guid>("NotebookId")
                         .HasColumnType("uuid");
@@ -2190,7 +2190,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("ExternalUserIdentity")
                         .HasMaxLength(255)
@@ -2276,7 +2276,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("DocumentId")
                         .IsRequired()
@@ -2336,7 +2336,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text")
@@ -2381,7 +2381,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<Guid>("LinkId")
                         .HasColumnType("uuid");
@@ -2407,7 +2407,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<Guid>("NotebookId")
                         .HasColumnType("uuid");
@@ -2433,7 +2433,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("TemplateName")
                         .IsRequired()
@@ -2468,7 +2468,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<DateTime>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
@@ -2523,7 +2523,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<bool>("Deleted")
                         .HasColumnType("boolean");
@@ -2576,7 +2576,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("EnvironmentConfigJson")
                         .HasColumnType("text")
@@ -2612,7 +2612,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("HeaderName")
                         .HasMaxLength(255)
@@ -2655,7 +2655,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<DateTime?>("Modified")
                         .HasColumnType("timestamp with time zone");
@@ -2890,7 +2890,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<decimal?>("DailyChargeLimitUsd")
                         .HasColumnType("decimal(19,4)");
@@ -2976,7 +2976,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("Placeholder")
                         .IsRequired()
@@ -3007,7 +3007,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1024)
@@ -3211,7 +3211,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("ExternalRequestId")
                         .HasMaxLength(128)
@@ -3348,7 +3348,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1024)
@@ -3414,7 +3414,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("Email")
                         .IsRequired()
@@ -3500,7 +3500,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     b.Property<DateTime>("Created")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now()");
+                        .HasDefaultValueSql("statement_timestamp()");
 
                     b.Property<string>("Value")
                         .IsRequired()

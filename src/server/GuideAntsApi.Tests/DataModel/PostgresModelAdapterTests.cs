@@ -76,7 +76,7 @@ public sealed class PostgresModelAdapterTests
         {
             var postgresProperty = postgres.FindEntityType(sqlServerProperty.DeclaringType.Name)!
                 .FindProperty(sqlServerProperty.Name)!;
-            var expected = sqlServerProperty.GetDefaultValueSql() == "NEWID()" ? "gen_random_uuid()" : "now()";
+            var expected = sqlServerProperty.GetDefaultValueSql() == "NEWID()" ? "gen_random_uuid()" : "statement_timestamp()";
             postgresProperty.GetDefaultValueSql().Should().Be(expected,
                 $"{sqlServerProperty.DeclaringType.DisplayName()}.{sqlServerProperty.Name} defaults to {sqlServerProperty.GetDefaultValueSql()} on SQL Server");
         }

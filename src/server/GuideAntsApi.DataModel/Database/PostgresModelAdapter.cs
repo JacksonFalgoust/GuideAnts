@@ -39,9 +39,13 @@ public static class PostgresModelAdapter
         ["varbinary(max)"] = "bytea",
     };
 
+    /// <summary>
+    /// <c>GETUTCDATE()</c> is evaluated per statement, as <c>statement_timestamp()</c> is; <c>now()</c> would give every
+    /// row a transaction inserts the transaction's start time.
+    /// </summary>
     private static readonly Dictionary<string, string> DefaultValueSql = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["GETUTCDATE()"] = "now()",
+        ["GETUTCDATE()"] = "statement_timestamp()",
         ["NEWID()"] = "gen_random_uuid()",
     };
 

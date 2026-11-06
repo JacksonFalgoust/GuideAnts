@@ -25,8 +25,8 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     SectionName = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false, collation: "guideants_ci"),
                     JsonValue = table.Column<string>(type: "text", nullable: false, collation: "guideants_ci"),
                     SchemaVersion = table.Column<int>(type: "integer", nullable: false, defaultValue: 1),
-                    CreatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UpdatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    CreatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
+                    UpdatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
                 },
                 constraints: table =>
@@ -46,7 +46,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     HeaderName = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true, collation: "guideants_ci"),
                     ValueTemplate = table.Column<string>(type: "character varying(512)", maxLength: 512, nullable: true, collation: "guideants_ci"),
                     UserConfigPolicy = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -60,7 +60,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     Host = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: false, collation: "guideants_ci"),
                     Reason = table.Column<string>(type: "character varying(1024)", maxLength: 1024, nullable: true, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     Updated = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
@@ -103,7 +103,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     ClaimToken = table.Column<Guid>(type: "uuid", nullable: false),
                     Attempts = table.Column<int>(type: "integer", nullable: false),
                     MaxAttempts = table.Column<int>(type: "integer", nullable: false),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     UpdatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     ErrorMessage = table.Column<string>(type: "text", nullable: true, collation: "guideants_ci"),
                     CorrelationId = table.Column<Guid>(type: "uuid", nullable: true),
@@ -131,8 +131,8 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     Remediation = table.Column<string>(type: "character varying(2048)", maxLength: 2048, nullable: true, collation: "guideants_ci"),
                     DesiredRevision = table.Column<int>(type: "integer", nullable: true),
                     AppliedRevision = table.Column<int>(type: "integer", nullable: true),
-                    CreatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UpdatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    CreatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
+                    UpdatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     CompletedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
                 },
@@ -160,7 +160,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     RequestFieldsWhenToolsPresentJson = table.Column<string>(type: "text", nullable: false, defaultValue: "{}", collation: "guideants_ci"),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false),
                     DisplayOrder = table.Column<int>(type: "integer", nullable: true),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     Updated = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
@@ -174,7 +174,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     TemplateName = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: false, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -192,7 +192,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     Category = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true, collation: "guideants_ci"),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false),
                     DisplayOrder = table.Column<int>(type: "integer", nullable: true),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     Updated = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
@@ -205,7 +205,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     UserId = table.Column<string>(type: "character varying(450)", nullable: true, collation: "guideants_ci"),
                     ProjectId = table.Column<Guid>(type: "uuid", nullable: true),
                     NotebookId = table.Column<Guid>(type: "uuid", nullable: true),
@@ -247,7 +247,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     Key = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false, collation: "guideants_ci"),
                     Title = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false, collation: "guideants_ci"),
                     Description = table.Column<string>(type: "character varying(1024)", maxLength: 1024, nullable: true, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -272,7 +272,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     PreferencesJson = table.Column<string>(type: "text", nullable: true, collation: "guideants_ci"),
                     TimeZone = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true, collation: "guideants_ci"),
                     Locale = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: true, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -290,7 +290,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                 {
                     AssistantAuthProviderId = table.Column<Guid>(type: "uuid", nullable: false),
                     Scope = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -331,7 +331,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     AvatarImageBytes = table.Column<byte[]>(type: "bytea", nullable: true),
                     AvatarContentType = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true, collation: "guideants_ci"),
                     HomePageMarkdown = table.Column<string>(type: "text", nullable: true, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     Updated = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
@@ -364,8 +364,8 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     ProjectorArtifactsJson = table.Column<string>(type: "text", nullable: false, collation: "guideants_ci"),
                     CompanionArtifactsJson = table.Column<string>(type: "text", nullable: false, collation: "guideants_ci"),
                     RouterPresetSnapshotJson = table.Column<string>(type: "text", nullable: false, collation: "guideants_ci"),
-                    CreatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UpdatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    CreatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
+                    UpdatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
                 },
                 constraints: table =>
@@ -433,7 +433,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     Scopes = table.Column<string>(type: "character varying(4000)", maxLength: 4000, nullable: true, collation: "guideants_ci"),
                     RedirectUri = table.Column<string>(type: "character varying(2048)", maxLength: 2048, nullable: false, collation: "guideants_ci"),
                     ReturnUrl = table.Column<string>(type: "character varying(2048)", maxLength: 2048, nullable: true, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     ExpiresAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
@@ -480,7 +480,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     AssistantId = table.Column<Guid>(type: "uuid", nullable: false),
                     Key = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false, collation: "guideants_ci"),
                     Value = table.Column<string>(type: "character varying(1024)", maxLength: 1024, nullable: true, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -501,7 +501,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     AssistantId = table.Column<Guid>(type: "uuid", nullable: false),
                     Prompt = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false, collation: "guideants_ci"),
                     OrderIndex = table.Column<int>(type: "integer", nullable: false),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -525,7 +525,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     RelativePath = table.Column<string>(type: "character varying(1024)", maxLength: 1024, nullable: false, collation: "guideants_ci"),
                     ContentBytes = table.Column<byte[]>(type: "bytea", nullable: true),
                     ContentType = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: true, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     Updated = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
@@ -549,7 +549,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     ApiHost = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: false, collation: "guideants_ci"),
                     SpecificationJson = table.Column<string>(type: "text", nullable: false, collation: "guideants_ci"),
                     AuthProviderId = table.Column<Guid>(type: "uuid", nullable: true),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     Updated = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
@@ -579,7 +579,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     Enabled = table.Column<bool>(type: "boolean", nullable: false),
                     DisplayOrder = table.Column<int>(type: "integer", nullable: false),
                     ContentHash = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     Updated = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
@@ -599,7 +599,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                 {
                     AssistantId = table.Column<Guid>(type: "uuid", nullable: false),
                     ToolId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -625,7 +625,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     AssistantId = table.Column<Guid>(type: "uuid", nullable: false),
                     DisplayOrder = table.Column<int>(type: "integer", nullable: true),
                     MaxToolCallsPerInvocation = table.Column<int>(type: "integer", nullable: true),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -654,7 +654,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     FileSize = table.Column<long>(type: "bigint", nullable: false),
                     Status = table.Column<int>(type: "integer", nullable: false),
                     ErrorMessage = table.Column<string>(type: "text", nullable: true, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     ProcessedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     IsIndexed = table.Column<bool>(type: "boolean", nullable: false)
                 },
@@ -681,7 +681,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     Summary = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true, collation: "guideants_ci"),
                     ToolDefinitionJson = table.Column<string>(type: "text", nullable: false, collation: "guideants_ci"),
                     SchemaFragmentJson = table.Column<string>(type: "text", nullable: false, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     Updated = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
@@ -707,7 +707,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     ToolCallsJson = table.Column<string>(type: "text", nullable: true, collation: "guideants_ci"),
                     FunctionName = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: true, collation: "guideants_ci"),
                     ToolCallId = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -735,7 +735,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     LlmRoundTrips = table.Column<int>(type: "integer", nullable: false),
                     ToolCallCount = table.Column<int>(type: "integer", nullable: false),
                     Depth = table.Column<int>(type: "integer", nullable: false),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     Completed = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     DurationMs = table.Column<long>(type: "bigint", nullable: true)
                 },
@@ -765,7 +765,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     FileSize = table.Column<long>(type: "bigint", nullable: false),
                     Status = table.Column<int>(type: "integer", nullable: false),
                     ErrorMessage = table.Column<string>(type: "text", nullable: true, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     ProcessedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     IsIndexed = table.Column<bool>(type: "boolean", nullable: false)
                 },
@@ -789,7 +789,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     FolderId = table.Column<Guid>(type: "uuid", nullable: true),
                     LatestVersion = table.Column<int>(type: "integer", nullable: false),
                     IsSnapshot = table.Column<bool>(type: "boolean", nullable: false),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -807,7 +807,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     Deleted = table.Column<bool>(type: "boolean", nullable: false),
                     IsSystemProject = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
                     HomePageContentFileId = table.Column<Guid>(type: "uuid", nullable: true),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -832,8 +832,8 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     RefreshTokenEncrypted = table.Column<string>(type: "text", nullable: true, collation: "guideants_ci"),
                     ExpiresAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     Scope = table.Column<string>(type: "character varying(4000)", maxLength: 4000, nullable: true, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    Updated = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
+                    Updated = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -859,7 +859,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     Url = table.Column<string>(type: "text", nullable: false, collation: "guideants_ci"),
                     ProjectId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -878,7 +878,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     ProjectId = table.Column<Guid>(type: "uuid", nullable: false),
                     AssistantId = table.Column<Guid>(type: "uuid", nullable: false),
                     EnvironmentConfigJson = table.Column<string>(type: "text", nullable: true, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     Updated = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
@@ -910,7 +910,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     Tenant = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true, collation: "guideants_ci"),
                     HeaderName = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: true, collation: "guideants_ci"),
                     HeaderValue = table.Column<string>(type: "text", maxLength: 4096, nullable: true, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -932,7 +932,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     RelativePath = table.Column<string>(type: "character varying(450)", nullable: false, collation: "guideants_ci"),
                     ProjectId = table.Column<Guid>(type: "uuid", nullable: false),
                     ParentFolderId = table.Column<Guid>(type: "uuid", nullable: true),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     Modified = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
@@ -957,7 +957,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     Placeholder = table.Column<string>(type: "text", nullable: false, collation: "guideants_ci"),
                     ProjectId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -977,7 +977,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     ProjectId = table.Column<Guid>(type: "uuid", nullable: false),
                     Key = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: false, collation: "guideants_ci"),
                     Value = table.Column<string>(type: "text", nullable: false, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -1013,7 +1013,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     FileSize = table.Column<long>(type: "bigint", nullable: false),
                     ContentType = table.Column<string>(type: "text", nullable: false, collation: "guideants_ci"),
                     Indexed = table.Column<bool>(type: "boolean", nullable: false),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     OriginVersionId = table.Column<Guid>(type: "uuid", nullable: true),
                     FromNotebook = table.Column<bool>(type: "boolean", nullable: false),
                     OriginNotebookId = table.Column<Guid>(type: "uuid", nullable: true),
@@ -1071,14 +1071,14 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     FilesCreated = table.Column<string>(type: "text", nullable: true, collation: "guideants_ci"),
                     FilesModified = table.Column<string>(type: "text", nullable: true, collation: "guideants_ci"),
                     WorkingDirectory = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     Status = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false, defaultValue: "completed", collation: "guideants_ci"),
                     ExecutionId = table.Column<Guid>(type: "uuid", nullable: true),
                     TerminalizedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     TerminationCode = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true, collation: "guideants_ci"),
                     TerminationDetail = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true, collation: "guideants_ci"),
                     CheckpointVersion = table.Column<int>(type: "integer", nullable: false),
-                    LastUpdated = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    LastUpdated = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -1098,8 +1098,8 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     SchemaVersion = table.Column<int>(type: "integer", nullable: false),
                     CaptureState = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false, collation: "guideants_ci"),
                     TraceJson = table.Column<string>(type: "text", nullable: false, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    Updated = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
+                    Updated = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -1184,8 +1184,8 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     CredentialRef = table.Column<string>(type: "character varying(512)", maxLength: 512, nullable: true, collation: "guideants_ci"),
                     Status = table.Column<int>(type: "integer", nullable: false),
                     CreatedByUserId = table.Column<Guid>(type: "uuid", nullable: false),
-                    CreatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
-                    UpdatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    CreatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
+                    UpdatedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     RemovedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     ErrorMessage = table.Column<string>(type: "character varying(4000)", maxLength: 4000, nullable: true, collation: "guideants_ci")
                 },
@@ -1216,7 +1216,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     UploadType = table.Column<int>(type: "integer", nullable: true),
                     Type = table.Column<int>(type: "integer", nullable: false),
                     OrderIndex = table.Column<int>(type: "integer", nullable: false),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -1261,7 +1261,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     ToolCalls = table.Column<string>(type: "text", nullable: true, collation: "guideants_ci"),
                     FunctionName = table.Column<string>(type: "text", nullable: true, collation: "guideants_ci"),
                     ToolCallId = table.Column<string>(type: "text", nullable: true, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     TurnIndex = table.Column<int>(type: "integer", nullable: false),
                     MessageSequence = table.Column<int>(type: "integer", nullable: false),
                     MessageContentType = table.Column<int>(type: "integer", nullable: false),
@@ -1303,7 +1303,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     NotebookId = table.Column<Guid>(type: "uuid", nullable: false),
                     Title = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: false, collation: "guideants_ci"),
                     Summary = table.Column<string>(type: "text", nullable: true, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     CompactionBoundaryTurnIndex = table.Column<int>(type: "integer", nullable: true)
                 },
                 constraints: table =>
@@ -1322,7 +1322,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     FileSize = table.Column<long>(type: "bigint", nullable: false),
                     Status = table.Column<int>(type: "integer", nullable: false),
                     ErrorMessage = table.Column<string>(type: "text", nullable: true, collation: "guideants_ci"),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     ProcessedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     IsIndexed = table.Column<bool>(type: "boolean", nullable: false)
                 },
@@ -1342,7 +1342,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     LastModifiedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     FileHash = table.Column<string>(type: "text", nullable: false, collation: "guideants_ci"),
                     OriginContentFileVersionId = table.Column<Guid>(type: "uuid", nullable: true),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     DocumentId = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: false, collation: "guideants_ci")
                 },
                 constraints: table =>
@@ -1368,7 +1368,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     GuideId = table.Column<Guid>(type: "uuid", nullable: true),
                     HomePageFileId = table.Column<Guid>(type: "uuid", nullable: true),
                     HomePageConversationId = table.Column<Guid>(type: "uuid", nullable: true),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     SourceNotebookId = table.Column<Guid>(type: "uuid", nullable: true),
                     SourceConversationMessageId = table.Column<Guid>(type: "uuid", nullable: true)
                 },
@@ -1414,7 +1414,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     NotebookId = table.Column<Guid>(type: "uuid", nullable: false),
                     LinkId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -1440,7 +1440,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     NotebookId = table.Column<Guid>(type: "uuid", nullable: false),
                     SemiStructuredProjectDataId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()")
                 },
                 constraints: table =>
                 {
@@ -1521,7 +1521,7 @@ namespace GuideAntsApi.DataModel.Postgres.Migrations
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     GuideId = table.Column<Guid>(type: "uuid", nullable: false),
                     NotebookId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "statement_timestamp()"),
                     Active = table.Column<bool>(type: "boolean", nullable: false),
                     AuthMode = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
                     RetentionPeriod = table.Column<int>(type: "integer", nullable: true),
