@@ -1331,11 +1331,14 @@ namespace GuideAntsApi.DataModel
         ///   SaveChanges throws so the offending write site is fixed.
         /// - DateTimeKind.Unspecified is the shape values arrive in from EF reads and
         ///   JSON parsing; by convention it is a UTC instant and is marked Kind = Utc.
+        /// - On Postgres, values are also cut to whole microseconds (timestamptz keeps no
+        ///   more; datetime2(7) keeps 100 ns), so the tracked value equals the stored one.
         /// Added entities are scanned fully; Modified entities only for the properties
         /// that actually changed (unrelated stored values are never touched).
         /// </summary>
         private void EnforceUtcOnDateTimeProperties()
         {
+            var truncateToMicroseconds = StoresWholeMicroseconds;
             foreach (var entry in ChangeTracker.Entries())
             {
                 if (entry.State is not (EntityState.Added or EntityState.Modified))
@@ -1349,23 +1352,23 @@ namespace GuideAntsApi.DataModel
                     if (property.Metadata.ClrType == typeof(DateTime))
                     {
                         var value = (DateTime)property.CurrentValue!;
-                        property.CurrentValue = NormalizeDateTimeToUtc(property.Metadata.Name, value);
+                        property.CurrentValue = NormalizeDateTimeToUtc(property.Metadata.Name, value, truncateToMicroseconds);
                     }
                     else if (property.Metadata.ClrType == typeof(DateTime?))
                     {
                         var value = (DateTime?)property.CurrentValue;
                         if (value is not null)
                         {
-                            property.CurrentValue = NormalizeDateTimeToUtc(property.Metadata.Name, value.Value);
+                            property.CurrentValue = NormalizeDateTimeToUtc(property.Metadata.Name, value.Value, truncateToMicroseconds);
                         }
                     }
                 }
             }
         }
 
-        private static DateTime NormalizeDateTimeToUtc(string propertyName, DateTime value)
+        private static DateTime NormalizeDateTimeToUtc(string propertyName, DateTime value, bool truncateToMicroseconds)
         {
-            return value.Kind switch
+            var utc = value.Kind switch
             {
                 DateTimeKind.Utc => value,
                 DateTimeKind.Unspecified => DateTime.SpecifyKind(value, DateTimeKind.Utc),
@@ -1373,7 +1376,19 @@ namespace GuideAntsApi.DataModel
                     $"Local DateTime '{value:o}' (Kind=Local) in property '{propertyName}': the API stores UTC instants only. " +
                     "Use DateTime.UtcNow (or convert to UTC explicitly) before saving.")
             };
+            return truncateToMicroseconds ? PostgresModelAdapter.TruncateToMicroseconds(utc) : utc;
         }
+
+        /// <summary>
+        /// True on Postgres, whose timestamptz keeps whole microseconds; SQL Server's datetime2(7) keeps 100 ns ticks.
+        /// </summary>
+        private bool StoresWholeMicroseconds => _storesWholeMicroseconds ??= Database.IsNpgsql();
+
+        private bool? _storesWholeMicroseconds;
+
+        /// <summary>A DateTime as the database stores it (see <see cref="StoresWholeMicroseconds"/>).</summary>
+        private DateTime AtStoredPrecision(DateTime value)
+            => StoresWholeMicroseconds ? PostgresModelAdapter.TruncateToMicroseconds(value) : value;
 
         /// <summary>
         /// Enforces the UTC-at-rest invariant (see <see cref="EnforceUtcOnDateTimeProperties"/>)
@@ -1477,8 +1492,10 @@ namespace GuideAntsApi.DataModel
                         var allHigherSequence = existingHigherSequence.Concat(newHigherSequence).ToList();
                         var minHigherSequenceTimestamp = allHigherSequence.Min(m => m.Created);
 
-                        // If the new message has a newer timestamp than the minimum of higher-sequence messages, it's invalid
-                        if (newMsg.Created > minHigherSequenceTimestamp)
+                        // If the new message has a newer timestamp than the minimum of higher-sequence messages, it's invalid.
+                        // Compared as stored: on Postgres a stored value has lost its sub-microsecond ticks, and so will
+                        // this message's (EnforceUtcOnDateTimeProperties runs after this check).
+                        if (AtStoredPrecision(newMsg.Created) > AtStoredPrecision(minHigherSequenceTimestamp))
                         {
                             throw new InvalidOperationException(
                                 $"Cannot create message with TurnIndex={turnIndex}, MessageSequence={newMsg.MessageSequence}, " +

@@ -195,6 +195,80 @@ public sealed class PostgresModelAdapterTests
     }
 
     [TestMethod]
+    public void Date_times_are_written_as_utc_whole_microseconds()
+    {
+        var dateTimes = AllProperties(PostgresModel.Value)
+            .Where(p => (Nullable.GetUnderlyingType(p.ClrType) ?? p.ClrType) == typeof(DateTime))
+            .ToList();
+
+        dateTimes.Should().Contain(p => p.ClrType == typeof(DateTime)).And.Contain(p => p.ClrType == typeof(DateTime?));
+        dateTimes.Where(p => p.GetValueConverter() is null).Select(p => $"{p.DeclaringType.DisplayName()}.{p.Name}")
+            .Should().BeEmpty();
+        dateTimes.Should().OnlyContain(p => p.GetColumnType() == "timestamp with time zone");
+
+        var converter = dateTimes.First().GetValueConverter()!;
+        converter.ModelClrType.Should().Be(typeof(DateTime));
+        converter.ProviderClrType.Should().Be(typeof(DateTime));
+        var ticks = new DateTime(2026, 1, 2, 3, 4, 5).AddTicks(1234567).Ticks;
+        foreach (var kind in new[] { DateTimeKind.Utc, DateTimeKind.Unspecified, DateTimeKind.Local })
+        {
+            // Marked UTC, never converted: the raw ticks are kept, cut to whole microseconds.
+            var written = (DateTime)converter.ConvertToProvider(new DateTime(ticks, kind))!;
+            written.Kind.Should().Be(DateTimeKind.Utc);
+            written.Ticks.Should().Be(ticks - 7);
+        }
+
+        // MaxValue becomes Npgsql's 'infinity' only if it stays exactly MaxValue.
+        ((DateTime)converter.ConvertToProvider(DateTime.MaxValue)!).Should().Be(DateTime.MaxValue);
+        ((DateTime)converter.ConvertToProvider(DateTime.MinValue)!).Should().Be(DateTime.MinValue);
+
+        var read = (DateTime)converter.ConvertFromProvider(new DateTime(ticks - 7, DateTimeKind.Unspecified))!;
+        read.Kind.Should().Be(DateTimeKind.Utc);
+        read.Ticks.Should().Be(ticks - 7);
+    }
+
+    [TestMethod]
+    public void Truncate_to_microseconds_floors_and_keeps_the_kind()
+    {
+        var beforePostgresEpoch = new DateTime(1999, 12, 31, 23, 59, 59, DateTimeKind.Local).AddTicks(9999995);
+        var truncated = PostgresModelAdapter.TruncateToMicroseconds(beforePostgresEpoch);
+        truncated.Ticks.Should().Be(beforePostgresEpoch.Ticks - 5);
+        truncated.Kind.Should().Be(DateTimeKind.Local);
+
+        var whole = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1234560);
+        PostgresModelAdapter.TruncateToMicroseconds(whole).Should().Be(whole);
+        PostgresModelAdapter.TruncateToMicroseconds(DateTime.MaxValue).Should().Be(DateTime.MaxValue);
+    }
+
+    [TestMethod]
+    public void Strings_are_written_with_nul_as_the_replacement_character()
+    {
+        var strings = AllProperties(PostgresModel.Value).Where(p => p.ClrType == typeof(string)).ToList();
+
+        strings.Should().NotBeEmpty();
+        strings.Where(p => p.GetValueConverter() is null).Select(p => $"{p.DeclaringType.DisplayName()}.{p.Name}")
+            .Should().BeEmpty();
+
+        // The converter keeps the string mapping: same collation, same lengths (keys included).
+        var email = PostgresModel.Value.FindEntityType(typeof(User))!.FindProperty(nameof(User.Email))!;
+        email.IsKey().Should().BeFalse();
+        email.GetColumnType().Should().Be("character varying(450)");
+        email.GetCollation().Should().Be(PostgresModelAdapter.CaseInsensitiveCollation);
+        email.GetTypeMapping().ClrType.Should().Be(typeof(string));
+        var sectionName = PostgresModel.Value.FindEntityType(typeof(ApplicationSetting))!
+            .FindProperty(nameof(ApplicationSetting.SectionName))!;
+        sectionName.IsPrimaryKey().Should().BeTrue();
+        sectionName.GetValueConverter().Should().NotBeNull();
+        sectionName.GetCollation().Should().Be(PostgresModelAdapter.CaseInsensitiveCollation);
+
+        var converter = email.GetValueConverter()!;
+        converter.ConvertToProvider("a\u0000b\u0000").Should().Be("a\uFFFDb\uFFFD");
+        const string valid = "plain \uFFFD \u0001 é 漢字 🐜";
+        converter.ConvertToProvider(valid).Should().BeSameAs(valid);
+        converter.ConvertFromProvider("a\uFFFDb").Should().Be("a\uFFFDb");
+    }
+
+    [TestMethod]
     public void Embedding_maps_to_pgvector()
     {
         var embedding = PostgresModel.Value.FindEntityType(typeof(DocumentChunk))!
@@ -425,6 +499,11 @@ public sealed class PostgresModelAdapterTests
         rowVersion.GetColumnName().Should().Be("RowVersion");
         rowVersion.GetColumnType().Should().Be("rowversion");
         rowVersion.GetValueConverter().Should().BeNull();
+
+        // No Postgres DateTime or string converters.
+        AllProperties(model)
+            .Where(p => p.ClrType == typeof(string) || (Nullable.GetUnderlyingType(p.ClrType) ?? p.ClrType) == typeof(DateTime))
+            .Should().OnlyContain(p => p.GetValueConverter() == null);
 
         model.GetCollations().Should().BeEmpty();
         AllProperties(model).Should().NotContain(p => p.GetCollation() != null);

@@ -56,6 +56,24 @@ public static class PostgresModelAdapter
 
     private static readonly ValueComparer<byte[]> RowVersionComparer = new(favorStructuralComparisons: true);
 
+    /// <summary>
+    /// SQL Server compares and stores a DateTime's raw ticks whatever its <see cref="DateTimeKind"/>; Npgsql refuses a
+    /// non-UTC DateTime for <c>timestamp with time zone</c>. Every value is marked UTC on the way in (never converted:
+    /// the store holds UTC instants), and cut to the whole microseconds Postgres keeps, so a parameter compares with
+    /// what was stored. Values read back are UTC.
+    /// </summary>
+    private static readonly ValueConverter<DateTime, DateTime> DateTimeToStored = new(
+        value => ToStoredDateTime(value),
+        value => DateTime.SpecifyKind(value, DateTimeKind.Utc));
+
+    /// <summary>
+    /// Postgres <c>text</c> can't hold U+0000 (SQL Server's <c>nvarchar</c> can), so it is stored as U+FFFD, the
+    /// Unicode replacement character. Every other string is stored as it is; values are read back unchanged.
+    /// </summary>
+    private static readonly ValueConverter<string, string> StringToStored = new(
+        value => ReplaceNulCharacters(value),
+        value => value);
+
     private static readonly ValueConverter<float[], Vector> EmbeddingToVector = new(
         embedding => new Vector(embedding),
         vector => vector.ToArray());
@@ -149,6 +167,23 @@ public static class PostgresModelAdapter
         return $"{name[..(MaxIdentifierLength - hash.Length - 1)]}_{hash}";
     }
 
+    /// <summary>
+    /// Cuts <paramref name="value"/> to the whole microseconds a Postgres <c>timestamp</c> keeps, keeping its Kind.
+    /// <see cref="DateTime.MaxValue"/> is left alone: Npgsql stores it as <c>infinity</c> and reads that back as
+    /// <see cref="DateTime.MaxValue"/>, which a cut value would no longer be.
+    /// </summary>
+    public static DateTime TruncateToMicroseconds(DateTime value)
+        => value == DateTime.MaxValue
+            ? value
+            : new DateTime(value.Ticks - value.Ticks % TimeSpan.TicksPerMicrosecond, value.Kind);
+
+    /// <summary>The value written for a DateTime on Postgres: whole microseconds, marked UTC without conversion.</summary>
+    public static DateTime ToStoredDateTime(DateTime value)
+        => DateTime.SpecifyKind(TruncateToMicroseconds(value), DateTimeKind.Utc);
+
+    /// <summary>The value written for a string on Postgres: U+0000 becomes U+FFFD.</summary>
+    public static string ReplaceNulCharacters(string value) => value.Replace('\u0000', '\uFFFD');
+
     private static void AdaptProperty(IMutableProperty property)
     {
         if (property.FindAnnotation(RelationalAnnotationNames.ColumnType)?.Value is string columnType
@@ -186,6 +221,16 @@ public static class PostgresModelAdapter
             property.SetValueConverter(EmbeddingToVector);
             // Same element-wise comparison and snapshot copy that SQL Server's float[] vector mapping uses.
             property.SetValueComparer(EmbeddingComparer);
+        }
+
+        if ((Nullable.GetUnderlyingType(property.ClrType) ?? property.ClrType) == typeof(DateTime) && property.GetValueConverter() is null)
+        {
+            property.SetValueConverter(DateTimeToStored);
+        }
+
+        if (property.ClrType == typeof(string) && property.GetValueConverter() is null)
+        {
+            property.SetValueConverter(StringToStored);
         }
 
         var providerType = property.GetValueConverter()?.ProviderClrType ?? property.GetProviderClrType() ?? property.ClrType;
