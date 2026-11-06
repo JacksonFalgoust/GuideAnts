@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Query;
 
 namespace GuideAntsApi.DataModel.Database;
 
@@ -53,6 +54,8 @@ public static class ApplicationDbContextOptions
                         npg.UseQuerySplittingBehavior(QuerySplittingBehavior.SingleQuery);
                     }
                 });
+                // Sort NULLs as SQL Server does: first when ascending, last when descending.
+                builder.ReplaceService<IQuerySqlGeneratorFactory, SqlServerNullOrderingQuerySqlGeneratorFactory>();
                 break;
             default:
                 throw new InvalidOperationException($"Unsupported database provider '{provider}'.");
