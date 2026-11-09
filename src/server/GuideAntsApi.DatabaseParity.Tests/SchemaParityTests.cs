@@ -62,7 +62,8 @@ public sealed class SchemaParityTests
             await context.Database.MigrateAsync();
 
             var applied = (await context.Database.GetAppliedMigrationsAsync()).ToList();
-            applied.Select(m => m[(m.IndexOf('_') + 1)..]).Should().Equal("PostgresBaselineV1", "AddDocumentChunkFullText");
+            applied.Should().Equal(context.Database.GetMigrations(), "every Postgres migration is applied");
+            applied[0].Should().EndWith("_PostgresBaselineV1");
             (await context.Database.GetPendingMigrationsAsync()).Should().BeEmpty();
         }
         finally

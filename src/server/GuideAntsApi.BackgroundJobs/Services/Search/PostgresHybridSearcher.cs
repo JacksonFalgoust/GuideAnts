@@ -18,12 +18,16 @@ namespace GuideAntsApi.BackgroundJobs.Services.Search;
 /// <item>Text: the query is normalized like the indexed text (<see cref="PostgresFullText.NormalizeFunction"/>) and
 /// parsed with <c>phraseto_tsquery</c>, the counterpart of the double-quoted <c>CONTAINSTABLE</c> phrase. It has no
 /// operator syntax, so punctuation and operators in the query can't break the statement.</item>
-/// <item>Text score: <c>ts_rank_cd(..., 32)</c>, which is <c>rank / (rank + 1)</c>, in 0-1 like SQL Server's
-/// <c>RANK / 1000</c> (the two rank functions differ, so the scores don't match).</item>
+/// <item>Text score: <c>ts_rank_cd(..., 32)</c>, which is <c>rank / (rank + 1)</c>. It is in 0-1 like SQL Server's
+/// <c>RANK / 1000</c>, but for the same chunk it is usually about 5 to 8 times higher (demo corpus: 0.017 vs 0.091,
+/// 0.058 vs 0.286). With the default 0.7/0.3 weights a text match adds about 0.03-0.11 to the score here, against about
+/// 0.005-0.02 on SQL Server, so text matches reorder results more on Postgres (parity report #49, to be re-evaluated
+/// with the production comparison). The scores reach the model: <c>MemoryTools</c> returns the serialized results.</item>
 /// <item>Like <c>CONTAINSTABLE</c>'s <c>top_n_by_rank</c>, the full-text candidates are the best
 /// <c>maxResults * 2</c> across the whole table, taken before the index and notebook filter.</item>
 /// <item>A zero embedding (<c>RebuildEmbeddingsHandler</c> zeroes them before regenerating) has a NaN cosine
-/// distance in pgvector and 1 in SQL Server; it is read as 1, so it never outranks a real match.</item>
+/// distance in pgvector and 1 in SQL Server; it is read as 1. A NaN score would sort first and make
+/// <c>MemoryTools</c>' JSON serialization throw.</item>
 /// <item>Every value is a parameter, and no parameter sets <c>Size</c> (Npgsql would truncate the value).</item>
 /// </list>
 /// </remarks>

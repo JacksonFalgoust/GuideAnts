@@ -5,6 +5,12 @@ namespace GuideAntsApi.BackgroundJobs.Services.Search;
 /// <see cref="PostgresHybridSearcher"/> queries. The migration spells them out in its own SQL, so it stays fixed if
 /// these ever change; a rename needs a new migration.
 /// </summary>
+/// <remarks>
+/// Maintenance: a later Postgres migration that changes the type or collation of <c>DocumentChunks."Content"</c>
+/// must drop <c>"ContentTsv"</c> (and its index) first and recreate them afterwards, because Postgres can't alter the
+/// type of a column that a generated column uses ("cannot alter type of a column used by a generated column"). A
+/// rename is fine: the stored expression follows the column.
+/// </remarks>
 public static class PostgresFullText
 {
     /// <summary>
