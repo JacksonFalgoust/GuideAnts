@@ -5,6 +5,7 @@ using GuideAntsApi.DataModel.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Npgsql;
+using Testcontainers.PostgreSql;
 
 namespace GuideAntsApi.DatabaseParity.Tests;
 
@@ -102,6 +103,35 @@ public sealed class PostgresDatabaseInitializerTests
 
         act.Should().Throw<InvalidOperationException>()
             .WithMessage("Connection string must specify Database for automatic database setup.");
+    }
+
+    /// <summary>
+    /// Postgres 17 migrates the baseline, but every <c>LIKE</c>/<c>strpos</c> query then fails at run time under the
+    /// case-insensitive collation (parity report #26), so the initializer refuses the server before it creates or
+    /// migrates anything. Runs against a real Postgres 17 server (image overridable with
+    /// <c>GA_PARITY_POSTGRES17_IMAGE</c>).
+    /// </summary>
+    [TestMethod]
+    public async Task Rejects_a_Postgres_17_server_before_creating_the_database()
+    {
+        var image = Environment.GetEnvironmentVariable("GA_PARITY_POSTGRES17_IMAGE");
+        await using var postgres17 = new PostgreSqlBuilder()
+            .WithImage(string.IsNullOrWhiteSpace(image) ? "pgvector/pgvector:0.8.7-pg17" : image)
+            .Build();
+        await postgres17.StartAsync();
+        var connectionString = new NpgsqlConnectionStringBuilder(postgres17.GetConnectionString())
+        {
+            Database = "ga_init_on_17",
+        }.ConnectionString;
+
+        var act = () => PostgresDatabaseInitializer.EnsureDatabaseAndMigrate(connectionString, new ListLogger());
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("PostgreSQL 18 or later is required (found 17.*).");
+        await using var connection = new NpgsqlConnection(
+            new NpgsqlConnectionStringBuilder(connectionString) { Database = "postgres" }.ConnectionString);
+        await connection.OpenAsync();
+        await using var exists = new NpgsqlCommand("SELECT 1 FROM pg_database WHERE datname = 'ga_init_on_17'", connection);
+        (await exists.ExecuteScalarAsync()).Should().BeNull("the guard runs before the database is created");
     }
 
     private static async Task<bool> DatabaseExistsAsync(string database)

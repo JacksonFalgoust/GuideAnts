@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using GuideAntsApi.DataModel;
 using GuideAntsApi.DataModel.Database;
@@ -12,6 +13,13 @@ public static class PostgresDatabaseInitializer
     private const int MaxDatabaseNameLength = 63;
 
     private const string MaintenanceDatabase = "postgres";
+
+    /// <summary>
+    /// <c>server_version_num</c> of Postgres 18.0. Postgres 17 migrates the baseline, but rejects <c>LIKE</c> and
+    /// <c>strpos</c> under the nondeterministic <c>guideants_ci</c> collation, so every text search would fail at run
+    /// time (parity report #26).
+    /// </summary>
+    private const int MinimumServerVersionNum = 180000;
 
     /// <summary>
     /// Ensures the Postgres database exists, then applies the Postgres EF Core migrations.
@@ -41,6 +49,12 @@ public static class PostgresDatabaseInitializer
         using (var connection = new NpgsqlConnection(builder.ConnectionString))
         {
             connection.Open();
+
+            using (var version = new NpgsqlCommand("SHOW server_version_num", connection))
+            {
+                var versionNum = Convert.ToString(version.ExecuteScalar(), CultureInfo.InvariantCulture);
+                EnsureSupportedServerVersion(versionNum, connection.ServerVersion);
+            }
 
             using (var exists = new NpgsqlCommand("SELECT 1 FROM pg_database WHERE datname = @name", connection))
             {
@@ -72,5 +86,19 @@ public static class PostgresDatabaseInitializer
 
         using var context = new ApplicationDbContext(optionsBuilder.Options);
         context.Database.Migrate();
+    }
+
+    /// <summary>
+    /// Fails fast on a server older than Postgres 18, before anything is created or migrated.
+    /// </summary>
+    /// <param name="serverVersionNum">The <c>server_version_num</c> setting, e.g. <c>180001</c>.</param>
+    /// <param name="serverVersion">The readable version for the message, e.g. <c>18.1</c>.</param>
+    internal static void EnsureSupportedServerVersion(string? serverVersionNum, string serverVersion)
+    {
+        if (!int.TryParse(serverVersionNum, NumberStyles.None, CultureInfo.InvariantCulture, out var versionNum)
+            || versionNum < MinimumServerVersionNum)
+        {
+            throw new InvalidOperationException($"PostgreSQL 18 or later is required (found {serverVersion}).");
+        }
     }
 }
