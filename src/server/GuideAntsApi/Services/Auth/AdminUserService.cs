@@ -1,5 +1,7 @@
 using System.Data;
+using GuideAntsApi.Database;
 using GuideAntsApi.DataModel;
+using GuideAntsApi.DataModel.Database;
 using GuideAntsApi.DataModel.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -82,8 +84,8 @@ public interface IAdminUserService
 
 public sealed class AdminUserService : IAdminUserService
 {
-    private const string AdminMutationLockSql =
-        "EXEC sp_getapplock @Resource = N'GuideAnts.Auth.AdminUsers', @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000;";
+    internal const string AdminMutationLockResource = "GuideAnts.Auth.AdminUsers";
+    internal static readonly TimeSpan AdminMutationLockTimeout = TimeSpan.FromSeconds(10);
 
     private readonly ApplicationDbContext _db;
     private readonly IUserPasswordHasher _passwordHasher;
@@ -352,21 +354,35 @@ public sealed class AdminUserService : IAdminUserService
         var executionStrategy = _db.Database.CreateExecutionStrategy();
         return await executionStrategy.ExecuteAsync(async () =>
         {
-            await using var transaction = await _db.Database
-                .BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken)
-                .ConfigureAwait(false);
-
-            await _db.Database.ExecuteSqlRawAsync(AdminMutationLockSql, cancellationToken).ConfigureAwait(false);
-
-            var result = await mutation(DateTime.UtcNow).ConfigureAwait(false);
-            if (!result.IsSuccess)
+            try
             {
-                await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                await using var transaction = await _db.Database
+                    .BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken)
+                    .ConfigureAwait(false);
+
+                await DatabaseAppLock.AcquireTransactionLockAsync(
+                        _db.Database, AdminMutationLockResource, AdminMutationLockTimeout, cancellationToken)
+                    .ConfigureAwait(false);
+
+                var result = await mutation(DateTime.UtcNow).ConfigureAwait(false);
+                if (!result.IsSuccess)
+                {
+                    await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                    return result;
+                }
+
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
                 return result;
             }
-
-            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            return result;
+            catch (Exception ex) when (DatabaseErrors.IsSerializationFailure(ex))
+            {
+                // Postgres only: a mutation that waited for the lock read a snapshot from before the other mutation
+                // committed, so Postgres aborted it (40001). The execution strategy retries the mutation (Npgsql
+                // treats 40001 as transient); clear the tracker first, or the retry would read back this attempt's
+                // modified entities instead of the committed rows.
+                _db.ChangeTracker.Clear();
+                throw;
+            }
         }).ConfigureAwait(false);
     }
 

@@ -19,6 +19,24 @@ public sealed class JobQueueClaimSqlCharacterizationTests
     }
 
     [TestMethod]
+    public void TryClaimSql_OnPostgres_RechecksPendingStatusAndEmptyClaimTokenOnOuterUpdate()
+    {
+        var claimSql = JobQueueClaimSql.ClaimPostgres;
+
+        // Same placeholders and order as the SQL Server claim; no SKIP LOCKED, so a claimer that loses the race for
+        // the candidate row updates nothing (as on SQL Server) instead of moving on to the next row.
+        claimSql.Should().NotContainEquivalentOf("SKIP LOCKED");
+        claimSql.Should().Contain("ORDER BY c.\"Priority\" DESC, c.\"Created\" ASC");
+        claimSql.Should().Contain("LIMIT 1");
+        claimSql.Should().Contain("(CAST({3} AS text) IS NULL OR c.\"JobType\" = CAST({3} AS text))");
+        claimSql.Should().MatchRegex("UPDATE \"JobQueue\" AS j[\\s\\S]*WHERE j\\.\"Id\" = \\([\\s\\S]*\\)\\s*AND j\\.\"Status\" = \\{0\\} AND j\\.\"ClaimToken\" = \\{2\\}\\s*$");
+        for (var placeholder = 0; placeholder <= 6; placeholder++)
+        {
+            claimSql.Should().Contain($"{{{placeholder}}}");
+        }
+    }
+
+    [TestMethod]
     public void LeaseOwnershipLost_DoesNotBurnAttemptBudget()
     {
         JobRetryPolicy.BurnsAttemptBudget(JobFailureClass.LeaseOwnershipLost).Should().BeFalse();

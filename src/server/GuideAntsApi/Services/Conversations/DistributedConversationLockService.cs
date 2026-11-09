@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Data.SqlClient;
 using GuideAntsApi.DataModel;
+using GuideAntsApi.DataModel.Database;
 using GuideAntsApi.DataModel.Models;
 
 namespace GuideAntsApi.Services.Conversations;
@@ -111,9 +111,7 @@ public class DistributedConversationLockService : IDistributedConversationLock
         }
         catch (DbUpdateException ex)
         {
-            if (ex.InnerException is SqlException sqlEx &&
-                sqlEx.Number == 547 &&
-                sqlEx.Message.Contains("FK_ConversationLocks_NotebookConversations_ConversationId", StringComparison.Ordinal))
+            if (DatabaseErrors.IsForeignKeyViolation(ex, "FK_ConversationLocks_NotebookConversations_ConversationId"))
             {
                 _logger.LogWarning("Conversation {ConversationId} does not exist — cannot acquire lock", conversationId);
                 return LockAcquisitionResult.NotFound();

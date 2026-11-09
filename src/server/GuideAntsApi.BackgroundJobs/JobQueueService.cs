@@ -1,12 +1,12 @@
 using System.Data;
 using System.Text.Json;
-using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using GuideAntsApi.BackgroundJobs.Jobs;
 using GuideAntsApi.BackgroundJobs.Scheduling;
 using GuideAntsApi.DataModel;
+using GuideAntsApi.DataModel.Database;
 using GuideAntsApi.DataModel.Models;
 
 namespace GuideAntsApi.BackgroundJobs;
@@ -33,6 +33,23 @@ internal static class JobQueueClaimSql
         INNER JOIN Candidate c ON j.Id = c.Id
         WHERE j.Status = {0}
           AND j.ClaimToken = {2}
+        """;
+
+    // The same claim for Postgres, with the same placeholders. Like the SQL Server statement it takes no row lock
+    // while choosing the candidate (no FOR UPDATE / SKIP LOCKED): when two claimers pick the same row, the second
+    // waits for the first, re-checks the outer WHERE against the committed row and updates nothing, so it gets no
+    // job this time instead of moving on to the next row. The casts give the job-type parameter a type even when it
+    // is NULL.
+    internal const string ClaimPostgres = """
+        UPDATE "JobQueue" AS j
+        SET "Status" = {4}, "ClaimToken" = {5}, "LeaseUntil" = {6}, "UpdatedUtc" = {1}
+        WHERE j."Id" = (
+            SELECT c."Id" FROM "JobQueue" AS c
+            WHERE c."Status" = {0} AND c."AvailableAt" <= {1} AND c."ClaimToken" = {2}
+              AND (CAST({3} AS text) IS NULL OR c."JobType" = CAST({3} AS text))
+            ORDER BY c."Priority" DESC, c."Created" ASC
+            LIMIT 1)
+          AND j."Status" = {0} AND j."ClaimToken" = {2}
         """;
 }
 
@@ -99,7 +116,7 @@ public class JobQueueService : IJobQueueService
                 ct).ConfigureAwait(false);
         }
 
-        const string claimSql = JobQueueClaimSql.Claim;
+        var claimSql = context.Database.IsNpgsql() ? JobQueueClaimSql.ClaimPostgres : JobQueueClaimSql.Claim;
 
         try
         {
@@ -109,7 +126,9 @@ public class JobQueueService : IJobQueueService
                     (byte)JobStatus.Pending,
                     now,
                     emptyClaimToken,
-                    (object?)jobType ?? DBNull.Value,
+                    // A null (any type) must be passed as null, not DBNull.Value: EF Core has no type mapping for
+                    // DBNull and throws before sending the command (on both providers). null gets EF's null mapping.
+                    jobType!,
                     (byte)JobStatus.Processing,
                     claimToken,
                     leaseUntil,
@@ -132,13 +151,16 @@ public class JobQueueService : IJobQueueService
 
             return claimedJob;
         }
-        catch (SqlException ex)
+        catch (Exception ex) when (DatabaseErrors.TryGetProviderError(ex, out var code, out var state))
         {
+            // SQL Server: "SqlException Number=<error number> State=<state>".
+            // Postgres: "PostgresException Number=<SQLSTATE> State=<constraint name, if any>".
             _logger.LogWarning(
                 ex,
-                "Job claim failed with SqlException Number={SqlNumber} State={SqlState}",
-                ex.Number,
-                ex.State);
+                "Job claim failed with {ExceptionType} Number={SqlNumber} State={SqlState}",
+                ex.GetType().Name,
+                code,
+                state);
             return null;
         }
     }

@@ -1,6 +1,8 @@
 using System.Data;
 using System.Net.Mail;
+using GuideAntsApi.Database;
 using GuideAntsApi.DataModel;
+using GuideAntsApi.DataModel.Database;
 using GuideAntsApi.DataModel.Models;
 using GuideAntsApi.Services.Auth;
 using Microsoft.AspNetCore.Authorization;
@@ -11,6 +13,9 @@ namespace GuideAntsApi.Endpoints;
 
 public static class AuthEndpoints
 {
+    internal const string RegisterLockResource = "GuideAnts.Auth.Register";
+    internal static readonly TimeSpan RegisterLockTimeout = TimeSpan.FromSeconds(10);
+
     public static void MapAuthEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/auth")
@@ -39,62 +44,73 @@ public static class AuthEndpoints
             var executionStrategy = db.Database.CreateExecutionStrategy();
             return await executionStrategy.ExecuteAsync(async () =>
             {
-                await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
-                await db.Database.ExecuteSqlRawAsync(
-                    "EXEC sp_getapplock @Resource = N'GuideAnts.Auth.Register', @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000;",
-                    cancellationToken);
-
-                var emailAlreadyExists = await db.Users
-                    .AsNoTracking()
-                    .AnyAsync(user => user.Email == trimmedEmail, cancellationToken);
-                if (emailAlreadyExists)
-                {
-                    return Results.Conflict(new { message = "An account with this email already exists." });
-                }
-
-                var hasExistingUsers = await db.Users.AsNoTracking().AnyAsync(cancellationToken);
-                var assignedRole = hasExistingUsers ? Role.Pending : Role.Admin;
-                var nowUtc = DateTime.UtcNow;
-
-                var user = new User
-                {
-                    Name = trimmedName,
-                    Email = trimmedEmail,
-                    SecurityStamp = Guid.NewGuid(),
-                    LastLoginAt = nowUtc,
-                    ApprovedAt = hasExistingUsers ? null : nowUtc,
-                    MustChangePassword = false
-                };
-                user.PasswordHash = passwordHasher.HashPassword(user, password);
-
-                db.Users.Add(user);
-                db.UserRoles.Add(new UserRole
-                {
-                    UserId = user.Id,
-                    Role = assignedRole,
-                    AssignedAt = nowUtc,
-                    AssignedByUserId = hasExistingUsers ? null : user.Id
-                });
-
                 try
                 {
-                    await db.SaveChangesAsync(cancellationToken);
-                    await transaction.CommitAsync(cancellationToken);
-                }
-                catch (DbUpdateException)
-                {
-                    await transaction.RollbackAsync(cancellationToken);
-                    return Results.Conflict(new { message = "Registration could not be completed." });
-                }
+                    await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+                    await DatabaseAppLock.AcquireTransactionLockAsync(
+                        db.Database, RegisterLockResource, RegisterLockTimeout, cancellationToken);
 
-                var issuedToken = jwtTokenService.IssueToken(user, assignedRole);
-                authCookieService.AppendAuthCookie(httpContext.Response, httpContext.Request, issuedToken);
-                return Results.Ok(new AuthResponse(
-                    user.Id,
-                    user.Name,
-                    user.Email,
-                    assignedRole,
-                    user.MustChangePassword));
+                    var emailAlreadyExists = await db.Users
+                        .AsNoTracking()
+                        .AnyAsync(user => user.Email == trimmedEmail, cancellationToken);
+                    if (emailAlreadyExists)
+                    {
+                        return Results.Conflict(new { message = "An account with this email already exists." });
+                    }
+
+                    var hasExistingUsers = await db.Users.AsNoTracking().AnyAsync(cancellationToken);
+                    var assignedRole = hasExistingUsers ? Role.Pending : Role.Admin;
+                    var nowUtc = DateTime.UtcNow;
+
+                    var user = new User
+                    {
+                        Name = trimmedName,
+                        Email = trimmedEmail,
+                        SecurityStamp = Guid.NewGuid(),
+                        LastLoginAt = nowUtc,
+                        ApprovedAt = hasExistingUsers ? null : nowUtc,
+                        MustChangePassword = false
+                    };
+                    user.PasswordHash = passwordHasher.HashPassword(user, password);
+
+                    db.Users.Add(user);
+                    db.UserRoles.Add(new UserRole
+                    {
+                        UserId = user.Id,
+                        Role = assignedRole,
+                        AssignedAt = nowUtc,
+                        AssignedByUserId = hasExistingUsers ? null : user.Id
+                    });
+
+                    try
+                    {
+                        await db.SaveChangesAsync(cancellationToken);
+                        await transaction.CommitAsync(cancellationToken);
+                    }
+                    catch (DbUpdateException ex) when (!DatabaseErrors.IsSerializationFailure(ex))
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                        return Results.Conflict(new { message = "Registration could not be completed." });
+                    }
+
+                    var issuedToken = jwtTokenService.IssueToken(user, assignedRole);
+                    authCookieService.AppendAuthCookie(httpContext.Response, httpContext.Request, issuedToken);
+                    return Results.Ok(new AuthResponse(
+                        user.Id,
+                        user.Name,
+                        user.Email,
+                        assignedRole,
+                        user.MustChangePassword));
+                }
+                catch (Exception ex) when (DatabaseErrors.IsSerializationFailure(ex))
+                {
+                    // Postgres only: a registration that waited for the lock read a snapshot from before the other
+                    // registration committed, so Postgres aborted it (40001). Rethrow so the execution strategy
+                    // retries the whole registration (Npgsql treats 40001 as transient), without the entities this
+                    // attempt added.
+                    db.ChangeTracker.Clear();
+                    throw;
+                }
             });
         })
         .WithName("RegisterUser")

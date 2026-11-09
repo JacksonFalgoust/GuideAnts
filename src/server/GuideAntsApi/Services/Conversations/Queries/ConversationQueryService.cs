@@ -54,10 +54,11 @@ public class ConversationQueryService : IConversationQueryService
 
         if (projectId == Guid.Empty) return null;
 
-        if (db.Database.IsRelational())
+        if (db.Database.IsSqlServer())
         {
             // Use READ UNCOMMITTED for this read-only query — prevents blocking by retention cleanup
             // lock escalation on NotebookConversationMessages/ConversationTurns tables.
+            // SQL Server only: Postgres readers never wait for writers (and it has no dirty reads).
             await db.Database.ExecuteSqlRawAsync("SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED");
         }
 
@@ -322,10 +323,11 @@ public class ConversationQueryService : IConversationQueryService
 
         if (projectId == Guid.Empty) return [];
 
-        if (db.Database.IsRelational())
+        if (db.Database.IsSqlServer())
         {
             // Use READ UNCOMMITTED — this read-only list must not be blocked by retention cleanup
             // locks on NotebookConversations or UsageEvents for this notebook.
+            // SQL Server only: Postgres readers never wait for writers (and it has no dirty reads).
             await db.Database.ExecuteSqlRawAsync("SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED");
         }
 

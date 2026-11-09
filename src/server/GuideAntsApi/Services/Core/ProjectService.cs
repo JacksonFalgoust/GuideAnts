@@ -148,13 +148,21 @@ using var scope = CreateDbScope();
 
         // Use READ UNCOMMITTED for this read-only aggregation — dirty reads are acceptable
         // for display purposes and this prevents lock contention with retention cleanup.
-        await context.Database.ExecuteSqlRawAsync("SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED");
+        // SQL Server only: Postgres readers never wait for writers (and it has no dirty reads).
+        var isSqlServer = context.Database.IsSqlServer();
+        if (isSqlServer)
+        {
+            await context.Database.ExecuteSqlRawAsync("SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED");
+        }
         var lastActivityByNotebook = await context.UsageEvents
             .Where(e => e.ProjectId == projectId && e.NotebookId != null)
             .GroupBy(e => e.NotebookId!.Value)
             .Select(g => new { NotebookId = g.Key, LastActivity = g.Max(e => e.Created) })
             .ToDictionaryAsync(x => x.NotebookId, x => x.LastActivity);
-        await context.Database.ExecuteSqlRawAsync("SET TRANSACTION ISOLATION LEVEL READ COMMITTED");
+        if (isSqlServer)
+        {
+            await context.Database.ExecuteSqlRawAsync("SET TRANSACTION ISOLATION LEVEL READ COMMITTED");
+        }
 
         return ToProjectDetailsDto(project, lastActivityByNotebook);
     }
