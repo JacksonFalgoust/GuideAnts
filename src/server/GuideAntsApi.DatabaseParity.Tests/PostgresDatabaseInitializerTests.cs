@@ -13,7 +13,7 @@ namespace GuideAntsApi.DatabaseParity.Tests;
 public sealed class PostgresDatabaseInitializerTests
 {
     [TestMethod]
-    public async Task Creates_a_missing_database_and_applies_the_baseline()
+    public async Task Creates_a_missing_database_and_applies_the_migrations()
     {
         // Spaces and a double quote prove the name is quoted, not interpolated.
         var database = $"ga init \"quoted\" {Guid.NewGuid():N}"[..40];
@@ -26,8 +26,9 @@ public sealed class PostgresDatabaseInitializerTests
 
             (await DatabaseExistsAsync(database)).Should().BeTrue();
             await using var context = ParityDatabases.CreateContext(DatabaseProvider.Postgres, connectionString);
-            (await context.Database.GetAppliedMigrationsAsync()).Should().ContainSingle()
-                .Which.Should().EndWith("_PostgresBaselineV1");
+            var applied = (await context.Database.GetAppliedMigrationsAsync()).ToList();
+            applied.Should().Equal(context.Database.GetMigrations(), "every Postgres migration is applied");
+            applied[0].Should().EndWith("_PostgresBaselineV1");
             logger.Messages.Should().Equal(
                 $"Created Postgres database '{database}'.",
                 $"Postgres database '{database}' is ready; applying EF Core migrations.");
@@ -55,7 +56,7 @@ public sealed class PostgresDatabaseInitializerTests
                 $"Postgres database '{database}' already exists.",
                 $"Postgres database '{database}' is ready; applying EF Core migrations.");
             await using var context = ParityDatabases.CreateContext(DatabaseProvider.Postgres, connectionString);
-            (await context.Database.GetAppliedMigrationsAsync()).Should().ContainSingle();
+            (await context.Database.GetAppliedMigrationsAsync()).Should().Equal(context.Database.GetMigrations());
         }
         finally
         {

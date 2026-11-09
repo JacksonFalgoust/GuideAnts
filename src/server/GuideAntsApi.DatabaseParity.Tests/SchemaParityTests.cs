@@ -1,7 +1,9 @@
 using FluentAssertions;
+using GuideAntsApi.BackgroundJobs.Services.Search;
 using GuideAntsApi.DatabaseParity.Tests.Infrastructure;
 using GuideAntsApi.DataModel.Database;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 
 namespace GuideAntsApi.DatabaseParity.Tests;
 
@@ -27,6 +29,16 @@ public sealed class SchemaParityTests
     private static readonly (string Table, string Index, string Column) NoOpSqlServerFilter =
         ("ConversationTurnTraces", "IX_ConversationTurnTraces_ConversationTurnId", "ConversationTurnId");
 
+    /// <summary>
+    /// Postgres's full-text search over <c>DocumentChunks.Content</c> (migration AddDocumentChunkFullText): a
+    /// generated <c>tsvector</c> column and its GIN index, neither in the model. They stand in for SQL Server's
+    /// full-text index on the same column, which lives in the <c>DocumentChunks_Catalog</c> full-text catalog, outside
+    /// <c>sys.columns</c> and <c>sys.indexes</c>, so the snapshot sees neither side.
+    /// <see cref="Postgres_full_text_column_stands_in_for_the_sql_server_full_text_index"/> checks both.
+    /// </summary>
+    internal static readonly (string Table, string Column, string Index) PostgresFullTextObjects =
+        ("DocumentChunks", "ContentTsv", "IX_DocumentChunks_ContentTsv");
+
     private static SchemaSnapshot _sqlServer = null!;
     private static SchemaSnapshot _postgres = null!;
     private static IReadOnlyList<SchemaTable> _sqlServerTables = null!;
@@ -50,7 +62,7 @@ public sealed class SchemaParityTests
             await context.Database.MigrateAsync();
 
             var applied = (await context.Database.GetAppliedMigrationsAsync()).ToList();
-            applied.Should().ContainSingle().Which.Should().EndWith("_PostgresBaselineV1");
+            applied.Select(m => m[(m.IndexOf('_') + 1)..]).Should().Equal("PostgresBaselineV1", "AddDocumentChunkFullText");
             (await context.Database.GetPendingMigrationsAsync()).Should().BeEmpty();
         }
         finally
@@ -83,9 +95,13 @@ public sealed class SchemaParityTests
             _postgres.Tables[Name(table)].Columns.Select(c => c.Name).Should().NotContain(new[] { column, "xmin" });
         }
 
+        // The full-text column is Postgres-only by design (see PostgresFullTextObjects).
+        _postgres.Tables[PostgresFullTextObjects.Table].Columns.Should().ContainSingle(c => c.Name == PostgresFullTextObjects.Column)
+            .Which.TypeCategory.Should().Be("other:tsvector");
+
         ShouldMatch(
             ColumnLines(_sqlServerTables.Select(t => (t.Name, t.Columns.Where(c => c.TypeCategory != SchemaSnapshot.RowVersionCategory))), nullability: true),
-            ColumnLines(_postgres.Tables.Values.Select(t => (t.Name, t.Columns.AsEnumerable())), nullability: true),
+            ColumnLines(_postgres.Tables.Values.Select(t => (t.Name, t.Columns.Where(c => (t.Name, c.Name) != (PostgresFullTextObjects.Table, PostgresFullTextObjects.Column)))), nullability: true),
             "Columns");
     }
 
@@ -107,10 +123,99 @@ public sealed class SchemaParityTests
         noOpTable.Indexes.Single(i => i.Name == NoOpSqlServerFilter.Index).HasFilter.Should().BeTrue();
         noOpTable.Columns.Single(c => c.Name == NoOpSqlServerFilter.Column).IsNullable.Should().BeFalse();
 
+        // The full-text index is Postgres-only by design (see PostgresFullTextObjects).
+        _postgres.Tables[PostgresFullTextObjects.Table].Indexes.Should().ContainSingle(i => i.Name == PostgresFullTextObjects.Index)
+            .Which.Columns.Should().Equal(PostgresFullTextObjects.Column);
+        var postgresTables = _postgres.Tables.Values.Select(t => t with
+        {
+            Indexes = t.Indexes.Where(i => (t.Name, i.Name) != (PostgresFullTextObjects.Table, PostgresFullTextObjects.Index)).ToList(),
+        });
+
         ShouldMatch(
             Lines(_sqlServerTables, (t, i) => i.HasFilter && (t.Name, i.Name) != (NoOpSqlServerFilter.Table, NoOpSqlServerFilter.Index)),
-            Lines(_postgres.Tables.Values, (_, i) => i.HasFilter),
+            Lines(postgresTables, (_, i) => i.HasFilter),
             "Indexes");
+    }
+
+    /// <summary>
+    /// SQL Server indexes <c>DocumentChunks.Content</c> in a full-text catalog; Postgres in a generated <c>tsvector</c>
+    /// column with a GIN index, parsed with the GuideAnts configuration after the C#/F#/C++/.NET normalization.
+    /// The search behavior on top of them is covered by <c>HybridSearchBehaviorTests</c> (integration suite).
+    /// </summary>
+    [TestMethod]
+    public async Task Postgres_full_text_column_stands_in_for_the_sql_server_full_text_index()
+    {
+        await using (var sqlServer = ParityAssembly.Databases.CreateContext(DatabaseProvider.SqlServer))
+        {
+            var sqlServerFullText = await sqlServer.Database.SqlQueryRaw<string>("""
+                SELECT CONCAT(OBJECT_NAME(fi.object_id), '(', c.name, ') KEY ', i.name, ' ON ', fc.name) AS Value
+                FROM sys.fulltext_indexes fi
+                JOIN sys.fulltext_index_columns fic ON fic.object_id = fi.object_id
+                JOIN sys.columns c ON c.object_id = fic.object_id AND c.column_id = fic.column_id
+                JOIN sys.indexes i ON i.object_id = fi.object_id AND i.index_id = fi.unique_index_id
+                JOIN sys.fulltext_catalogs fc ON fc.fulltext_catalog_id = fi.fulltext_catalog_id
+                """).ToListAsync();
+            sqlServerFullText.Should().Equal("DocumentChunks(Content) KEY PK_DocumentChunks ON DocumentChunks_Catalog");
+        }
+
+        await using var postgres = ParityAssembly.Databases.CreateContext(DatabaseProvider.Postgres);
+        var column = await postgres.Database.SqlQueryRaw<string>("""
+            SELECT a.attgenerated::text || ' ' || pg_get_expr(d.adbin, d.adrelid) AS "Value"
+            FROM pg_attribute a
+            JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+            WHERE a.attrelid = '"DocumentChunks"'::regclass AND a.attname = 'ContentTsv'
+            """).ToListAsync();
+        column.Should().Equal(
+            $"s to_tsvector('{PostgresFullText.Config}'::regconfig, "
+            + $"{PostgresFullText.NormalizeFunction}(\"Content\"))");
+
+        var index = await postgres.Database.SqlQueryRaw<string>("""
+            SELECT pg_get_indexdef('"IX_DocumentChunks_ContentTsv"'::regclass) AS "Value"
+            """).ToListAsync();
+        index.Should().Equal("""CREATE INDEX "IX_DocumentChunks_ContentTsv" ON public."DocumentChunks" USING gin ("ContentTsv")""");
+
+        // IMMUTABLE is what lets the function feed a generated column.
+        var function = await postgres.Database.SqlQueryRaw<string>("""
+            SELECT p.provolatile::text || ' ' || p.proisstrict::text AS "Value"
+            FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = 'public' AND p.proname = 'guideants_fts_normalize'
+            """).ToListAsync();
+        function.Should().Equal("i true");
+    }
+
+    /// <summary>Down removes everything Up created, and Up then applies again on the same database.</summary>
+    [TestMethod]
+    public async Task Postgres_full_text_migration_rolls_back_and_reapplies()
+    {
+        var database = $"parity_fts_{Guid.NewGuid():N}";
+        await using var context = ParityDatabases.CreateContext(
+            DatabaseProvider.Postgres, ParityAssembly.Databases.PostgresConnectionStringFor(database));
+        try
+        {
+            await context.Database.MigrateAsync();
+            (await FullTextObjectsAsync()).Should().Equal("column", "config", "dictionary", "function", "index");
+
+            var baseline = context.Database.GetMigrations().First();
+            await context.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>().MigrateAsync(baseline);
+            (await FullTextObjectsAsync()).Should().BeEmpty();
+
+            await context.Database.MigrateAsync();
+            (await FullTextObjectsAsync()).Should().Equal("column", "config", "dictionary", "function", "index");
+        }
+        finally
+        {
+            await context.Database.EnsureDeletedAsync();
+        }
+
+        Task<List<string>> FullTextObjectsAsync() => context.Database.SqlQueryRaw<string>("""
+            SELECT kind AS "Value" FROM (
+                SELECT 'column' AS kind FROM pg_attribute WHERE attrelid = '"DocumentChunks"'::regclass AND attname = 'ContentTsv' AND NOT attisdropped
+                UNION ALL SELECT 'index' FROM pg_class WHERE relname = 'IX_DocumentChunks_ContentTsv'
+                UNION ALL SELECT 'function' FROM pg_proc WHERE proname = 'guideants_fts_normalize'
+                UNION ALL SELECT 'config' FROM pg_ts_config WHERE cfgname = 'guideants_english_nostem'
+                UNION ALL SELECT 'dictionary' FROM pg_ts_dict WHERE dictname = 'guideants_simple_english'
+            ) objects ORDER BY kind
+            """).ToListAsync();
     }
 
     /// <summary>

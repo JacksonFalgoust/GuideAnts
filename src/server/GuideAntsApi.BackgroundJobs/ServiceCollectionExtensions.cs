@@ -5,6 +5,7 @@ using GuideAntsApi.BackgroundJobs.Services;
 using GuideAntsApi.BackgroundJobs.Services.Embeddings;
 using GuideAntsApi.BackgroundJobs.Services.Indexing;
 using GuideAntsApi.BackgroundJobs.Services.Search;
+using GuideAntsApi.DataModel.Database;
 
 namespace GuideAntsApi.BackgroundJobs;
 
@@ -53,7 +54,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<OpenAiEmbeddingService>();
         services.AddSingleton<IEmbeddingService, ProviderRoutedEmbeddingService>();
         services.AddScoped<IHybridIndexer, HybridIndexer>();
-        services.AddScoped<IHybridSearcher, HybridSearcher>();
+        // Postgres has its own full-text query; without provider info (hosts that don't register it) the
+        // SQL Server searcher is used, as before.
+        services.AddScoped<IHybridSearcher>(sp =>
+            sp.GetService<DatabaseProviderInfo>()?.Provider == DatabaseProvider.Postgres
+                ? ActivatorUtilities.CreateInstance<PostgresHybridSearcher>(sp)
+                : ActivatorUtilities.CreateInstance<HybridSearcher>(sp));
         
         // Transcription handlers depend on ISpeechTranscriptionService and IVideoAudioExtractionService
         
