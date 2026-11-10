@@ -480,7 +480,7 @@ public sealed class NotebookFileReconciler : INotebookFileReconciler
         };
     }
 
-    private static bool IsDuplicateNotebookFileConstraint(DbUpdateException exception) =>
+    internal static bool IsDuplicateNotebookFileConstraint(DbUpdateException exception) =>
         exception.InnerException?.Message?.Contains("IX_NotebookFiles_RelativePath_NotebookId", StringComparison.Ordinal) == true
         || exception.InnerException?.Message?.Contains("IX_NotebookFiles_DocumentId", StringComparison.Ordinal) == true;
 

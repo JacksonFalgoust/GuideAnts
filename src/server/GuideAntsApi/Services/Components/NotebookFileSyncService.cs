@@ -98,7 +98,7 @@ public class NotebookFileSyncService : INotebookFileSyncService
     public Task QueueNotebookSyncAsync(Guid notebookId, CancellationToken cancellationToken = default) =>
         QueueReconcileAsync(notebookId, cancellationToken);
 
-    private static bool IsCorrelationDedupViolation(DbUpdateException exception)
+    internal static bool IsCorrelationDedupViolation(DbUpdateException exception)
     {
         for (var current = exception.InnerException; current != null; current = current.InnerException)
         {

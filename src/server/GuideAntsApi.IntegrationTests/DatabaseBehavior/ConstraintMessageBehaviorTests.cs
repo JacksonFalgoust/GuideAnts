@@ -3,6 +3,8 @@ using GuideAntsApi.DataModel;
 using GuideAntsApi.DataModel.Database;
 using GuideAntsApi.DataModel.Models;
 using GuideAntsApi.IntegrationTests.Infrastructure;
+using GuideAntsApi.Services.Components;
+using GuideAntsApi.Services.Components.Sync;
 using Microsoft.EntityFrameworkCore;
 
 namespace GuideAntsApi.IntegrationTests.DatabaseBehavior;
@@ -13,8 +15,8 @@ namespace GuideAntsApi.IntegrationTests.DatabaseBehavior;
 /// 'IX_...'", 547: "... conflicted with the REFERENCE constraint "FK_..."); Postgres's <c>PostgresException.Message</c>
 /// is "&lt;SQLSTATE&gt;: &lt;message text&gt;", and the text names it too (23505: "... violates unique constraint
 /// "IX_..."", 23503: "... violates foreign key constraint "FK_..."..."). Each test causes the violation the way the
-/// production path does and applies the production check, copied here because the checks are private or inline. The
-/// tests run on both providers against the suite's database (no web host).
+/// production path does and applies the production check: the reconciler's and the sync service's methods, and a copy
+/// of the endpoint's inline filter. The tests run on both providers against the suite's database (no web host).
 /// </summary>
 /// <remarks>
 /// The names are kept whole on Postgres: they are all shorter than the 63-byte identifier limit (#8).
@@ -75,7 +77,7 @@ public sealed class ConstraintMessageBehaviorTests
             var save = () => db.SaveChangesAsync();
 
             var exception = (await save.Should().ThrowAsync<DbUpdateException>()).Which;
-            IsDuplicateNotebookFileConstraint(exception).Should().BeTrue(exception.InnerException?.Message);
+            NotebookFileReconciler.IsDuplicateNotebookFileConstraint(exception).Should().BeTrue(exception.InnerException?.Message);
         }
     }
 
@@ -159,7 +161,7 @@ public sealed class ConstraintMessageBehaviorTests
             var save = () => db.SaveChangesAsync();
 
             var exception = (await save.Should().ThrowAsync<DbUpdateException>()).Which;
-            IsCorrelationDedupViolation(exception).Should().BeTrue(exception.InnerException?.Message);
+            NotebookFileSyncService.IsCorrelationDedupViolation(exception).Should().BeTrue(exception.InnerException?.Message);
         }
 
         await using (var verify = CreateContext())
@@ -204,23 +206,4 @@ public sealed class ConstraintMessageBehaviorTests
         Status = JobStatus.Pending,
         CorrelationId = correlationId
     };
-
-    // Copy of NotebookFileReconciler.IsDuplicateNotebookFileConstraint.
-    private static bool IsDuplicateNotebookFileConstraint(DbUpdateException exception) =>
-        exception.InnerException?.Message?.Contains("IX_NotebookFiles_RelativePath_NotebookId", StringComparison.Ordinal) == true
-        || exception.InnerException?.Message?.Contains("IX_NotebookFiles_DocumentId", StringComparison.Ordinal) == true;
-
-    // Copy of NotebookFileSyncService.IsCorrelationDedupViolation.
-    private static bool IsCorrelationDedupViolation(DbUpdateException exception)
-    {
-        for (var current = exception.InnerException; current != null; current = current.InnerException)
-        {
-            if (current.Message.Contains("IX_JobQueue_CorrelationDedup", StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
 }
