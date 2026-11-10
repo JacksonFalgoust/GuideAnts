@@ -57,17 +57,18 @@ public sealed class CompareCommand(
         foreach (var name in settings.Parity.Informational)
         {
             output.WriteLine($"Informational: {name}...");
-            profiles.Add(await InformationalProfileAsync(name, baseline, data, settings, ct));
+            profiles.Add(await InformationalProfileAsync(name, InformationalLabel(settings, name), baseline, data, settings, ct));
         }
 
         var verdict = Verdict.Evaluate(pairs, settings.Parity.Thresholds);
         var git = await probe.GitStateAsync(sampleRoot, ct);
+        var codeUnderTest = UsesProductionSearch(settings) ? await probe.CodeUnderTestAsync(sampleRoot, ct) : null;
         var context = new RunContext(
             DateTimeOffset.UtcNow, git.Commit, git.SampleDirty, baseline.Profile, candidate.Profile, baselineInfo, candidateInfo,
             data.Manifest, settings.Parity.Thresholds, settings.Parity.VectorTolerance, settings.Parity.TieTolerance,
             settings.Images.SqlServer, await probe.ImageDigestAsync(settings.Images.SqlServer, ct),
             settings.Images.Postgres, await probe.ImageDigestAsync(settings.Images.Postgres, ct),
-            KnownDifferencesHash(), SettingsDrift.Differences(CommittedSettings(args), settings));
+            KnownDifferencesHash(), SettingsDrift.Differences(CommittedSettings(args), settings), codeUnderTest);
         var labels = data.Chunks.ToDictionary(c => c.Id, c => c.Kind == ChunkKind.Edge ? c.SourcePath : $"{c.SourcePath}#{c.ChunkIndex}");
         var report = new ComparisonReport(context, pairs, verdict, quirk, profiles, KnownDifferences.FindStale(known, pairs), labels);
 
@@ -120,20 +121,33 @@ public sealed class CompareCommand(
         return File.Exists(path) ? Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant() : "absent";
     }
 
-    private async Task<InformationalSummary> InformationalProfileAsync(string name, SearchEngine baseline, DataSet data, ParitySettings settings, CancellationToken ct)
+    private async Task<InformationalSummary> InformationalProfileAsync(string name, string label, SearchEngine baseline, DataSet data, ParitySettings settings, CancellationToken ct)
     {
         try
         {
             await using var engine = engineFactory(settings, name);
             await EnsureSeededAsync(engine, data, ct);
             var pairs = await new ComparisonRunner(baseline, engine, data, settings, []).RunAsync(ParityScopes.All, ct);
-            return InformationalSummary.From(name, pairs);
+            return InformationalSummary.From(label, pairs);
         }
         catch (Exception ex) when (ex is NotSeededException or EngineUnavailableException or ParityConfigurationException)
         {
-            return InformationalSummary.Unavailable(name, ex.Message);
+            return InformationalSummary.Unavailable(label, ex.Message);
         }
     }
+
+    private static bool IsProduction(ParitySettings settings, string profile) =>
+        settings.Profiles.TryGetValue(profile, out var p) && string.Equals(p.Searcher, SearcherKinds.Production, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The baseline or the candidate runs production's searchers, so the report must cover that code too.</summary>
+    private static bool UsesProductionSearch(ParitySettings settings) =>
+        IsProduction(settings, settings.Parity.Baseline) || IsProduction(settings, settings.Parity.Candidate);
+
+    /// <summary>In a production comparison, says when an informational row is one of the sample's own stores.</summary>
+    private static string InformationalLabel(ParitySettings settings, string name) =>
+        UsesProductionSearch(settings) && !IsProduction(settings, name) && settings.Profiles.TryGetValue(name, out var profile)
+            ? $"{name} (the sample's own {profile.Provider} store, not production search)"
+            : name;
 
     private async Task<int> RunLiveAsync(string text, ParitySettings settings, DataSet data, CancellationToken ct)
     {

@@ -49,11 +49,19 @@ public sealed class CliCommandTests : IDisposable
         return (app, output, error);
     }
 
-    private sealed class FixedProbe : IEnvironmentProbe
+    private sealed class FixedProbe(bool codeDirty = false) : IEnvironmentProbe
     {
+        public int CodeChecks { get; private set; }
+
         public Task<string> ImageDigestAsync(string image, CancellationToken ct) => Task.FromResult("sha256:test");
 
         public Task<GitState> GitStateAsync(string sampleRoot, CancellationToken ct) => Task.FromResult(new GitState("abcd1234", false));
+
+        public Task<CodeUnderTestState> CodeUnderTestAsync(string sampleRoot, CancellationToken ct)
+        {
+            CodeChecks++;
+            return Task.FromResult(new CodeUnderTestState(["src/server/GuideAntsApi.BackgroundJobs", "src/server/GuideAntsApi.DataModel"], "feed1234", codeDirty));
+        }
     }
 
     [Fact]
@@ -125,6 +133,73 @@ public sealed class CliCommandTests : IDisposable
         await app.RunAsync(["seed", "--all"], CancellationToken.None);
         Assert.Equal(ExitCodes.ConfigurationOrData, await app.RunAsync(["compare", "--baseline", "b", "--candidate", "b"], CancellationToken.None));
         Assert.Contains("both 'b'", error.ToString());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_comparison_with_a_production_profile_records_and_checks_the_code_under_test(bool dirty)
+    {
+        var probe = new FixedProbe(dirty);
+        var output = new StringWriter();
+        var engines = new Dictionary<string, InMemoryEngine>();
+        var app = new CliApp(output, new StringWriter(), _root, embedderFactory: _ => null,
+            configOverrides: new Dictionary<string, string?> { ["Profiles:b:Searcher"] = "Production" },
+            engineFactory: (_, name) =>
+            {
+                var engine = engines.TryGetValue(name, out var existing) ? existing : engines[name] = new InMemoryEngine();
+                return new SearchEngine(name, "InMemory", engine, engine);
+            }, probe: probe, includeLocalOverrides: false);
+        await app.RunAsync(["seed", "--all"], CancellationToken.None);
+        var outPath = Path.Combine(_root, "RESULTS-production.md");
+
+        await app.RunAsync(["compare", "--out", outPath], CancellationToken.None);
+        var report = File.ReadAllText(outPath);
+        Assert.Equal(1, probe.CodeChecks);
+        Assert.Contains("- Production code under test: commit `abcd1234`, last changed in `feed1234`", report);
+        Assert.Contains("`src/server/GuideAntsApi.BackgroundJobs`", report);
+        Assert.Equal(dirty, report.Contains("> **Warning:** the production code under test has uncommitted changes", StringComparison.Ordinal));
+        Assert.Contains("- **Saved query embeddings.**", report);
+        Assert.Contains("- **No quirk-fixed run.**", report);
+    }
+
+    [Fact]
+    public async Task A_comparison_of_the_sample_s_own_stores_does_not_check_production_code()
+    {
+        var probe = new FixedProbe();
+        var output = new StringWriter();
+        var app = new CliApp(output, new StringWriter(), _root, embedderFactory: _ => null, engineFactory: (_, name) =>
+        {
+            if (!_engines.TryGetValue(name, out var engine))
+            {
+                engine = _engines[name] = new InMemoryEngine();
+            }
+
+            return new SearchEngine(name, "InMemory", engine, engine);
+        }, probe: probe, includeLocalOverrides: false);
+        await app.RunAsync(["seed", "--all"], CancellationToken.None);
+        var outPath = Path.Combine(_root, "RESULTS.md");
+
+        await app.RunAsync(["compare", "--out", outPath], CancellationToken.None);
+        Assert.Equal(0, probe.CodeChecks);
+        Assert.DoesNotContain("Production code under test", File.ReadAllText(outPath));
+        Assert.DoesNotContain("Saved query embeddings", File.ReadAllText(outPath));
+    }
+
+    [Fact]
+    public async Task Informational_profiles_of_the_sample_s_stores_are_labelled_in_a_production_comparison()
+    {
+        var (app, output, _) = App(overrides: new Dictionary<string, string?>
+        {
+            ["Profiles:b:Searcher"] = "Production",
+            ["Profiles:c:Provider"] = "InMemory",
+            ["Profiles:c:ConnectionString"] = "z",
+            ["Parity:Informational:0"] = "c",
+        });
+        await app.RunAsync(["seed", "--all"], CancellationToken.None);
+
+        await app.RunAsync(["compare"], CancellationToken.None);
+        Assert.Contains("c (the sample's own InMemory store, not production search): overlap", output.ToString());
     }
 
     private sealed class NoQuirkVariant(InMemoryEngine inner) : ISearchStore

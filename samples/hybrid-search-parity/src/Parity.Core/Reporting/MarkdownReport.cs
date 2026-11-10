@@ -24,6 +24,11 @@ public static class MarkdownReport
             sb.AppendLine("> **Warning:** the sample directory has uncommitted changes (other than RESULTS.md and RESULTS-production.md), so this run may not be reproducible from the commit below.").AppendLine();
         }
 
+        if (c.CodeUnderTest is { Dirty: true } code)
+        {
+            sb.AppendLine($"> **Warning:** the production code under test has uncommitted changes (in {string.Join(", ", code.Paths.Select(Code))}), so this run may not be reproducible from the commit below.").AppendLine();
+        }
+
         if (c.SettingsDifferences.Count > 0)
         {
             sb.AppendLine("> **Warning:** the effective settings differ from the committed `appsettings.json`, so the thresholds and tolerances below may not be the pre-registered ones:");
@@ -58,6 +63,11 @@ public static class MarkdownReport
         var m = c.Manifest;
         sb.AppendLine("## Environment").AppendLine();
         sb.AppendLine($"- Sample commit: `{c.SampleCommit}`{(c.SampleDirty ? " (sample directory has uncommitted changes)" : "")}");
+        if (c.CodeUnderTest is { } underTest)
+        {
+            sb.AppendLine($"- Production code under test: commit `{c.SampleCommit}`, last changed in `{underTest.LastCommit}`{(underTest.Dirty ? " (uncommitted changes)" : "")}; {underTest.Paths.Count} paths: {string.Join(", ", underTest.Paths.Select(Code))}");
+        }
+
         sb.AppendLine($"- known-differences.json: SHA-256 `{c.KnownDifferencesSha256}`");
         sb.AppendLine("- Data files (SHA-256 from data/manifest.json):");
         foreach (var (file, hash) in m.Files.OrderBy(kv => kv.Key, StringComparer.Ordinal))
@@ -140,6 +150,9 @@ public static class MarkdownReport
         }
 
         sb.AppendLine($"{differences.Count} differences: {string.Join(", ", differences.GroupBy(d => d.Category).OrderBy(g => g.Key).Select(g => $"{g.Count()} {ComparisonReport.Kebab(g.Key)}"))}.");
+        var disagreements = differences.Count(d => d.Detail.Contains(" diagnostics disagree with the hit", StringComparison.Ordinal));
+        sb.AppendLine(string.Create(Inv,
+            $"Diagnostics checked against the stores' own scores for {report.Pairs.Sum(p => p.ScoresChecked)} top-5 hits: {disagreements} disagree (each counts as unexplained)."));
         sb.AppendLine();
         sb.AppendLine("| Query | Scope | Overlap@5 | Same #1 | Differences |").AppendLine("|---|---|---|---|---|");
         foreach (var p in counted)
@@ -229,6 +242,12 @@ public static class MarkdownReport
         sb.AppendLine($"- **Tie-break explanations.** {ties} hybrid differences are explained as `top-n-boundary-tie`. They come from diagnostics whose tie-breaking among equal text ranks is unspecified, the same nondeterminism as production's own query.");
         sb.AppendLine("- **Stop lists differ.** SQL Server's system stoplist and Postgres's `english` list are not the same (for example single letters, digits, `not` and `use`). The token evidence above shows it where it matters.");
         sb.AppendLine(string.Create(Inv, $"- **One corpus.** The evidence is a single corpus (`docs/*.md` at `{m.CorpusCommit[..Math.Min(8, m.CorpusCommit.Length)]}`) and {m.QueryCount} saved queries."));
+        if (report.Context.CodeUnderTest is not null)
+        {
+            sb.AppendLine("- **Saved query embeddings.** The production searchers get the saved query vectors from `data/`, so the live embedding path (`ProviderRoutedEmbeddingService`) is not exercised; everything after the embedding is production's.");
+            sb.AppendLine("- **No quirk-fixed run.** Production's searchers have no variant that filters by scope before the top N. Informational rows labelled \"the sample's own … store\" are the sample's stores, not production variants.");
+        }
+
         sb.AppendLine();
     }
 

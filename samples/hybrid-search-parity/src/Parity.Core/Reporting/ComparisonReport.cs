@@ -1,4 +1,5 @@
 using Parity.Core.Comparison;
+using Parity.Core.Contracts;
 using Parity.Core.Data;
 using Parity.Core.Model;
 using Parity.Core.Settings;
@@ -22,7 +23,8 @@ public sealed record RunContext(
     string PostgresImage,
     string PostgresImageDigest,
     string KnownDifferencesSha256,
-    IReadOnlyList<string> SettingsDifferences);
+    IReadOnlyList<string> SettingsDifferences,
+    CodeUnderTestState? CodeUnderTest = null);
 
 public sealed record ComparisonReport(
     RunContext Context,
