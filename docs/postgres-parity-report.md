@@ -386,6 +386,8 @@ _To be filled in (Task 18)._
 
 _To be filled in (Task 18): dual migrations, plus the extra CI minutes measured from the Task 15 runs._
 
+CI (`.github/workflows/client-test.yml`) now runs the server integration tests as a matrix on SQL Server and Postgres (`server-integration-test (SqlServer)` / `(Postgres)`), plus a `database-parity` job that runs `GuideAntsApi.DatabaseParity.Tests` and checks `dotnet ef migrations has-pending-model-changes` for both providers (dotnet-ef 9.0.11). The extra minutes are unknown until the first GitHub run. Rows 53 and 54 are known flaky on both providers, so if the full integration run fails and every failure is one of those named tests, the job reruns only those tests once; any other failure, or a second failure, fails the job. Branch protection must be updated to require both integration jobs and `database-parity`.
+
 ## Limits
 
 _To be filled in (Task 18)._ At minimum:
