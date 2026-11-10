@@ -365,6 +365,22 @@ public sealed class ConversationPersistence : IConversationPersistence
 
             await db.SaveChangesAsync(ct);
 
+            if (shouldAdvanceFence && db.Database.IsNpgsql())
+            {
+                // Postgres only (parity report #55). The read of streaming rows above doesn't wait for a worker's
+                // uncommitted insert (MVCC), but the turn update in SaveChanges waits for that worker's turn touch. A
+                // row the worker committed meanwhile would stay IsStreaming forever, since recovery only sweeps
+                // streaming turns. This statement reads a fresh snapshot while the fence holds the turn row, so it sees
+                // that row; any later worker write fails its Status/ExecutionId predicates on the fenced turn.
+                await db.NotebookConversationMessages
+                    .Where(m =>
+                        m.NotebookConversationId == conversationId
+                        && m.TurnIndex == turn.TurnIndex
+                        && m.Role == DataModelChatRole.Assistant
+                        && m.IsStreaming == true)
+                    .ExecuteUpdateAsync(setters => setters.SetProperty(m => m.IsStreaming, (bool?)false), ct);
+            }
+
             return new FencedTurnCancellationResult(
                 Found: true,
                 WasStreaming: wasStreaming,
