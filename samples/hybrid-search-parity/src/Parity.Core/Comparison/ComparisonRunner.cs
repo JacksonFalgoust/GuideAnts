@@ -118,9 +118,13 @@ public sealed class ComparisonRunner(SearchEngine baseline, SearchEngine candida
         RequireAllScored(baseline.Profile, union, scoresA);
         RequireAllScored(candidate.Profile, union, scoresB);
         var evaluation = RankingMetrics.EvaluatePair(hitsA, hitsB, SideScores(scoresA), SideScores(scoresB), p.TieTolerance);
-        var differences = DifferenceClassifier.Explain(evaluation.DifferingChunks, scoresA, scoresB, hitsA, hitsB, p.VectorTolerance, p.TieTolerance);
+        var differences = DifferenceClassifier.Explain(evaluation.DifferingChunks, scoresA, scoresB, hitsA, hitsB, p.VectorTolerance, p.TieTolerance)
+            .Concat(ScoreConsistency.Check(ScoreConsistency.Baseline, hitsA, scoresA, p.VectorTolerance, p.TieTolerance))
+            .Concat(ScoreConsistency.Check(ScoreConsistency.Candidate, hitsB, scoresB, p.VectorTolerance, p.TieTolerance))
+            .ToList();
+        var checkedHits = hitsA.Take(RankingMetrics.TopN).Count() + hitsB.Take(RankingMetrics.TopN).Count();
 
-        return new PairResult(queryRef, scope.Label, vector, textDiff, textReview, evidence, null, null, evaluation.Metrics, differences, hitsA, hitsB);
+        return new PairResult(queryRef, scope.Label, vector, textDiff, textReview, evidence, null, null, evaluation.Metrics, differences, hitsA, hitsB, checkedHits);
     }
 
     private static void RequireAllScored(string profile, IReadOnlyList<Guid> union, IReadOnlyDictionary<Guid, ChunkScore> scores)

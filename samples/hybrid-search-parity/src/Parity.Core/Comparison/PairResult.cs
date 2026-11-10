@@ -46,7 +46,8 @@ public sealed record TextEvidence(
 
 /// <summary>
 /// Everything compare learned about one query in one scope. Hybrid is null when either engine
-/// returned an error, which keeps the pair out of the overlap and same-#1 metrics.
+/// returned an error, which keeps the pair out of the overlap and same-#1 metrics. ScoresChecked counts the top-5 hits
+/// (both sides) whose scores were checked against the diagnostics (<see cref="ScoreConsistency"/>).
 /// </summary>
 public sealed record PairResult(
     QueryRef Query,
@@ -60,4 +61,5 @@ public sealed record PairResult(
     HybridPairMetrics? Hybrid,
     IReadOnlyList<RankDifference> Differences,
     IReadOnlyList<SearchHit> BaselineHits,
-    IReadOnlyList<SearchHit> CandidateHits);
+    IReadOnlyList<SearchHit> CandidateHits,
+    int ScoresChecked = 0);

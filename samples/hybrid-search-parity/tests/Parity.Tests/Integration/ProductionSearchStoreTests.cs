@@ -1,7 +1,9 @@
 using GuideAntsApi.DataModel.Database;
+using Microsoft.Data.SqlClient;
 using Npgsql;
 using Parity.Cli;
 using Parity.Core;
+using Parity.Core.Comparison;
 using Parity.Core.Corpus;
 using Parity.Core.Model;
 using Parity.Core.Settings;
@@ -13,7 +15,7 @@ namespace Parity.Tests.Integration;
 /// <summary>The production searchers, run against databases built by the real migrations.</summary>
 [Collection(DatabaseCollection.Name)]
 [Trait("Category", "Integration")]
-public sealed class ProductionSearchStoreTests(IntegrationFixture fixture)
+public sealed class ProductionSearchStoreTests(IntegrationFixture fixture, Xunit.Abstractions.ITestOutputHelper output)
 {
     [Fact]
     public async Task Production_store_returns_hits_on_both_providers()
@@ -95,6 +97,25 @@ public sealed class ProductionSearchStoreTests(IntegrationFixture fixture)
         Assert.Equal("PG42703", result.Error.Code); // undefined column
     }
 
+    /// <summary>The SQL Server side of the same guarantee: production's CONTAINSTABLE query fails without its index.</summary>
+    [Fact]
+    public async Task Production_sqlserver_store_reports_a_failed_search_instead_of_no_results()
+    {
+        var cs = fixture.SqlServerConnectionString("parity_production_broken");
+        await using var broken = new ProductionSearchStore(DatabaseProvider.SqlServer, cs, "broken-sqlserver", IntegrationFixture.PopulationTimeout);
+        await broken.EnsureSchemaAsync(CancellationToken.None);
+        await using (var connection = new SqlConnection(cs))
+        {
+            await connection.OpenAsync();
+            await using var drop = new SqlCommand("DROP FULLTEXT INDEX ON DocumentChunks", connection);
+            await drop.ExecuteNonQueryAsync();
+        }
+
+        var result = await broken.HybridSearchAsync(MiniCorpus.Query("conversation lock", MiniCorpus.ScopeP1), CancellationToken.None);
+        Assert.False(result.IsSuccess);
+        Assert.Equal("SQL7601", result.Error.Code); // not full-text indexed
+    }
+
     /// <summary>The comparison's Postgres diagnostics must parse text the way the production searcher does.</summary>
     [Fact]
     public async Task Production_postgres_diagnostics_normalize_text_like_the_searcher()
@@ -118,4 +139,42 @@ public sealed class ProductionSearchStoreTests(IntegrationFixture fixture)
             Assert.Contains(matches, id => fixture.FullData.Value.FindChunk(id)!.Content.Contains("C#", StringComparison.Ordinal));
         }
     }
+
+    /// <summary>
+    /// The comparison explains rankings with the diagnostics, whose Postgres side is a copy of the searcher's SQL. In
+    /// the production comparison every top-5 hit's own scores (computed by the searchers) must equal the diagnostics'.
+    /// </summary>
+    [Fact]
+    public async Task Production_diagnostics_reproduce_every_production_hit()
+    {
+        var pairs = await fixture.ProductionComparisonAsync();
+        var disagreements = pairs
+            .SelectMany(p => p.Differences.Where(d => d.Detail.Contains(" diagnostics disagree with the hit", StringComparison.Ordinal))
+                .Select(d => $"{p.Query.Id}·{p.Scope}: {d.ChunkId} ({d.Detail})"))
+            .ToList();
+        var checkedHits = pairs.Sum(p => p.ScoresChecked);
+        output.WriteLine($"checked {checkedHits} top-5 hits in {pairs.Count} pairs");
+
+        Assert.Equal(152, pairs.Count);
+        Assert.True(checkedHits >= pairs.Count(p => p.Hybrid is not null) * 2, $"only {checkedHits} hits checked");
+        Assert.True(disagreements.Count == 0, string.Join("\n", disagreements));
+    }
+
+    /// <summary>The production counterpart of FullParityTests' rule 2 and unexplained checks.</summary>
+    [Fact]
+    public async Task Production_differences_have_current_reviews_and_explanations()
+    {
+        var pairs = await fixture.ProductionComparisonAsync();
+        var open = pairs
+            .Where(p => (p.Text is { IsEqual: false } && (p.TextReview?.IsOpen ?? true)) || (p.Error is { NeedsReview: true } && (p.ErrorReview?.IsOpen ?? true)))
+            .Select(p => $"{p.Query.Id}·{p.Scope}: text {ComparisonReport_Status(p.TextReview)}, error {p.Error?.Code}")
+            .ToList();
+        var unexplained = pairs.SelectMany(p => p.Differences.Where(d => d.Category == DifferenceCategory.Unexplained).Select(d => $"{p.Query.Id}·{p.Scope}: {d.Detail}")).ToList();
+
+        Assert.True(open.Count == 0, "Open production reviews:\n" + string.Join("\n", open));
+        Assert.True(unexplained.Count == 0, string.Join("\n", unexplained));
+        Assert.All(pairs, p => Assert.True(p.Vector.Pass, p.Vector.Failure));
+    }
+
+    private static string ComparisonReport_Status(ReviewStatus? status) => Parity.Core.Reporting.ComparisonReport.Status(status);
 }

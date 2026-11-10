@@ -48,6 +48,7 @@ public sealed class IntegrationFixture : IAsyncLifetime
 
     private readonly SemaphoreSlim _comparisonGate = new(1, 1);
     private IReadOnlyList<PairResult>? _fullPairs;
+    private IReadOnlyList<PairResult>? _productionPairs;
 
     public Lazy<DataSet> FullData { get; } = new(() => DataStore.Load(RepoPaths.FindSampleRoot()));
 
@@ -108,6 +109,35 @@ public sealed class IntegrationFixture : IAsyncLifetime
             }
 
             return _fullPairs;
+        }
+        finally
+        {
+            _comparisonGate.Release();
+        }
+    }
+
+    /// <summary>The production verdict comparison (prod-sqlserver vs prod-postgres, saved queries, all four scopes), computed once.</summary>
+    public async Task<IReadOnlyList<PairResult>> ProductionComparisonAsync()
+    {
+        await _comparisonGate.WaitAsync();
+        try
+        {
+            if (_productionPairs is not null)
+            {
+                return _productionPairs;
+            }
+
+            var (baseline, candidate) = await ProductionEnginesAsync();
+            await using (baseline)
+            await using (candidate)
+            {
+                var known = KnownDifferences.ForCandidate(
+                    KnownDifferences.Load(Path.Combine(RepoPaths.FindSampleRoot(), CompareCommand.KnownDifferencesFile)), candidate.Profile);
+                _productionPairs = await new ComparisonRunner(baseline, candidate, FullData.Value, new ParitySettings(), known)
+                    .RunAsync(ParityScopes.All, CancellationToken.None);
+            }
+
+            return _productionPairs;
         }
         finally
         {
