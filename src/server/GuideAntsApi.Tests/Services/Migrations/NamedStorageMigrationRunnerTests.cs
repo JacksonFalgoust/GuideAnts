@@ -1,3 +1,4 @@
+using GuideAntsApi.DataModel.Database;
 using GuideAntsApi.Services.Migrations;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -10,7 +11,7 @@ public sealed class NamedStorageMigrationRunnerTests
     private const string StorageRoot = "/srv/storage";
 
     private static NamedStorageMigrationRunner CreateRunner(string storageRoot = StorageRoot) =>
-        new("Server=unused;Database=unused;", storageRoot, NullLogger.Instance);
+        new(DatabaseProvider.SqlServer, "Server=unused;Database=unused;", storageRoot, NullLogger.Instance);
 
     [TestMethod]
     public async Task RunAsync_MissingStorageRoot_ThrowsDirectoryNotFound()

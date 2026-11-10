@@ -536,7 +536,8 @@ public class Program
         });
 
         var logger = loggerFactory.CreateLogger<NamedStorageMigrationRunner>();
-        var runner = new NamedStorageMigrationRunner(connectionString, storageRoot, logger);
+        var provider = DatabaseProviderSettings.Parse(builder.Configuration[DatabaseProviderSettings.ConfigurationKey]);
+        var runner = new NamedStorageMigrationRunner(provider, connectionString, storageRoot, logger);
         var apply = args.Contains(NamedStorageMigrationApplySwitch, StringComparer.OrdinalIgnoreCase);
         runner.RunAsync(apply).GetAwaiter().GetResult();
     }
@@ -576,7 +577,8 @@ public class Program
         });
 
         var logger = loggerFactory.CreateLogger<AsciiSlugNormalizationRunner>();
-        var runner = new AsciiSlugNormalizationRunner(connectionString, storageRoot, logger);
+        var provider = DatabaseProviderSettings.Parse(builder.Configuration[DatabaseProviderSettings.ConfigurationKey]);
+        var runner = new AsciiSlugNormalizationRunner(provider, connectionString, storageRoot, logger);
         var apply = args.Contains(NamedStorageMigrationApplySwitch, StringComparer.OrdinalIgnoreCase);
         runner.RunAsync(apply).GetAwaiter().GetResult();
     }

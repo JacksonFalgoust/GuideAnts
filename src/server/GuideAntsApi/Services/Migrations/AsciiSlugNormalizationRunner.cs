@@ -1,4 +1,5 @@
 using GuideAntsApi.DataModel;
+using GuideAntsApi.DataModel.Database;
 using Microsoft.EntityFrameworkCore;
 
 namespace GuideAntsApi.Services.Migrations;
@@ -8,12 +9,14 @@ public sealed class AsciiSlugNormalizationRunner
     private const string TempPrefix = "__slugnorm__";
     private const string TempNotebookPrefix = "__slugnorm_nb__";
 
+    private readonly DatabaseProvider _provider;
     private readonly string _connectionString;
     private readonly string _storageRoot;
     private readonly ILogger _logger;
 
-    public AsciiSlugNormalizationRunner(string connectionString, string storageRoot, ILogger logger)
+    public AsciiSlugNormalizationRunner(DatabaseProvider provider, string connectionString, string storageRoot, ILogger logger)
     {
+        _provider = provider;
         _connectionString = connectionString;
         _storageRoot = storageRoot;
         _logger = logger;
@@ -95,17 +98,7 @@ public sealed class AsciiSlugNormalizationRunner
         return 0;
     }
 
-    private ApplicationDbContext CreateDbContext()
-    {
-        var optionsBuilder = new DbContextOptionsBuilder<ApplicationDbContext>();
-        optionsBuilder.UseSqlServer(_connectionString, sql =>
-        {
-            sql.UseVectorSearch();
-            sql.CommandTimeout(120);
-        });
-
-        return new ApplicationDbContext(optionsBuilder.Options);
-    }
+    private ApplicationDbContext CreateDbContext() => StorageMigrationDbContext.Create(_provider, _connectionString);
 
     private static NormalizationPlan BuildPlan(
         IReadOnlyCollection<ProjectRow> projects,

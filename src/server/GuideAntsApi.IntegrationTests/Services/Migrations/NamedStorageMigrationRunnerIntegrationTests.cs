@@ -45,13 +45,16 @@ public sealed class NamedStorageMigrationRunnerIntegrationTests : BaseEndpointTe
     }
 
     private NamedStorageMigrationRunner CreateRunner()
+        => new(DatabaseTestProvider.Current, ConnectionString(), _storageRoot, NullLogger.Instance);
+
+    private static string ConnectionString()
     {
         using var scope = SharedFactory!.Services.CreateScope();
         var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
         var connectionString = configuration.GetConnectionString("DefaultConnection");
         connectionString.Should().NotBeNullOrWhiteSpace(
             "the integration host must expose the Testcontainer connection string");
-        return new NamedStorageMigrationRunner(connectionString!, _storageRoot, NullLogger.Instance);
+        return connectionString!;
     }
 
     [TestMethod]
@@ -174,6 +177,35 @@ public sealed class NamedStorageMigrationRunnerIntegrationTests : BaseEndpointTe
 
         // The source GUID directory remains because the move was rejected.
         Directory.Exists(legacyProjectRoot).Should().BeTrue();
+    }
+
+    [TestMethod]
+    public async Task Program_switch_runs_the_migration_on_the_configured_provider()
+    {
+        // The --run-named-storage-migration switch builds the runner from configuration, including
+        // Database:Provider (parity report #20). Before that, it always used SQL Server.
+        var projectId = Guid.NewGuid();
+        var notebookId = Guid.NewGuid();
+        const string projectSlug = "epsilon-project";
+        const string notebookSlug = "epsilon-notes";
+
+        var legacyProjectRoot = Path.Combine(_storageRoot, projectId.ToString());
+        WriteFile(Path.Combine(legacyProjectRoot, "doc.md"), "project file");
+        await SeedProjectGraphAsync(projectId, projectSlug, notebookId, notebookSlug,
+            Path.Combine(legacyProjectRoot, "doc.md"), storagePath: null);
+
+        Program.Main(
+        [
+            $"--ConnectionStrings:DefaultConnection={ConnectionString()}",
+            $"--FileStorage:Path={_storageRoot}",
+            $"--Database:Provider={DatabaseTestProvider.Current}",
+            "--apply",
+            "--run-named-storage-migration"
+        ]);
+
+        Directory.Exists(legacyProjectRoot).Should().BeFalse();
+        File.Exists(Path.Combine(_storageRoot, projectSlug, "doc.md")).Should().BeTrue();
+        await AssertContentFilePathAsync(projectId, Path.Combine(_storageRoot, projectSlug, "doc.md"));
     }
 
     private async Task SeedProjectGraphAsync(

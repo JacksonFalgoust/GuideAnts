@@ -10,7 +10,16 @@ namespace GuideAntsApi.DataModel.Database;
 /// generates uncorrelated scans that block on concurrent write operations (e.g., retention cleanup).
 /// Queries that genuinely need split behavior can opt in with .AsSplitQuery() on a case-by-case basis.
 /// </param>
-public sealed record DbProviderTuning(int CommandTimeoutSeconds = 60, bool UseVectorSearch = false, bool ExplicitSingleQuery = false);
+/// <param name="RetryOnFailure">
+/// Use the provider's retrying execution strategy (<c>EnableRetryOnFailure</c>). A context that opens its own
+/// transactions with <c>BeginTransaction</c> outside <c>CreateExecutionStrategy().Execute</c>, such as the storage
+/// migration runners, turns it off: a retrying strategy rejects user-initiated transactions.
+/// </param>
+public sealed record DbProviderTuning(
+    int CommandTimeoutSeconds = 60,
+    bool UseVectorSearch = false,
+    bool ExplicitSingleQuery = false,
+    bool RetryOnFailure = true);
 
 public static class ApplicationDbContextOptions
 {
@@ -37,7 +46,10 @@ public static class ApplicationDbContextOptions
                         sql.UseVectorSearch();
                     }
                     // Resilient SQL execution and generous timeout for transient Azure SQL hiccups
-                    sql.EnableRetryOnFailure(maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(10), errorNumbersToAdd: null);
+                    if (tuning.RetryOnFailure)
+                    {
+                        sql.EnableRetryOnFailure(maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(10), errorNumbersToAdd: null);
+                    }
                     sql.CommandTimeout(tuning.CommandTimeoutSeconds);
                 });
                 break;
@@ -46,7 +58,10 @@ public static class ApplicationDbContextOptions
                 {
                     npg.UseVector();
                     // Resilient execution and generous timeout for transient hiccups
-                    npg.EnableRetryOnFailure(maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(10), errorCodesToAdd: null);
+                    if (tuning.RetryOnFailure)
+                    {
+                        npg.EnableRetryOnFailure(maxRetryCount: 5, maxRetryDelay: TimeSpan.FromSeconds(10), errorCodesToAdd: null);
+                    }
                     npg.CommandTimeout(tuning.CommandTimeoutSeconds);
                     npg.MigrationsAssembly(PostgresMigrationsAssembly);
                     if (tuning.ExplicitSingleQuery)

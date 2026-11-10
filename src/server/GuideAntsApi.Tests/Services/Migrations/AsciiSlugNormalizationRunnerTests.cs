@@ -1,3 +1,4 @@
+using GuideAntsApi.DataModel.Database;
 using System.Collections;
 using System.Reflection;
 using GuideAntsApi.Services;
@@ -9,7 +10,7 @@ namespace GuideAntsApi.Tests.Services.Migrations;
 
 /// <summary>
 /// <see cref="AsciiSlugNormalizationRunner"/> only exposes <c>RunAsync</c>, which
-/// requires a live SQL Server for everything beyond the storage-root guard. The
+/// requires a live database for everything beyond the storage-root guard. The
 /// deterministic core of the runner is the private static <c>BuildPlan</c>
 /// method, which is exercised here via reflection so the slug de-duplication and
 /// normalization rules are covered with real assertions.
@@ -25,7 +26,7 @@ public sealed class AsciiSlugNormalizationRunnerTests
     public async Task RunAsync_MissingStorageRoot_ThrowsDirectoryNotFound()
     {
         var missingRoot = Path.Combine(Path.GetTempPath(), "ascii-missing-" + Guid.NewGuid().ToString("N"));
-        var runner = new AsciiSlugNormalizationRunner("Server=unused;", missingRoot, NullLogger.Instance);
+        var runner = new AsciiSlugNormalizationRunner(DatabaseProvider.SqlServer, "Server=unused;", missingRoot, NullLogger.Instance);
 
         Func<Task> act = () => runner.RunAsync(apply: false);
 

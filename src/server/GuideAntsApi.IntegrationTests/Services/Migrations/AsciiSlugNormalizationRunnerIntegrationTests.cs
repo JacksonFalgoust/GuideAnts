@@ -46,13 +46,16 @@ public sealed class AsciiSlugNormalizationRunnerIntegrationTests : BaseEndpointT
     }
 
     private AsciiSlugNormalizationRunner CreateRunner()
+        => new(DatabaseTestProvider.Current, ConnectionString(), _storageRoot, NullLogger.Instance);
+
+    private static string ConnectionString()
     {
         using var scope = SharedFactory!.Services.CreateScope();
         var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
         var connectionString = configuration.GetConnectionString("DefaultConnection");
         connectionString.Should().NotBeNullOrWhiteSpace(
             "the integration host must expose the Testcontainer connection string");
-        return new AsciiSlugNormalizationRunner(connectionString!, _storageRoot, NullLogger.Instance);
+        return connectionString!;
     }
 
     [TestMethod]
@@ -148,6 +151,38 @@ public sealed class AsciiSlugNormalizationRunnerIntegrationTests : BaseEndpointT
         // No slug changes -> directory untouched and slug preserved.
         Directory.Exists(Path.Combine(_storageRoot, safeProjectSlug)).Should().BeTrue();
         await AssertProjectSlugAsync(projectId, safeProjectSlug);
+    }
+
+    [TestMethod]
+    public async Task Program_switch_runs_the_normalization_on_the_configured_provider()
+    {
+        // The --run-ascii-slug-normalization switch builds the runner from configuration, including
+        // Database:Provider (parity report #20). Before that, it always used SQL Server.
+        var projectId = Guid.NewGuid();
+        var notebookId = Guid.NewGuid();
+        const string projectTitle = "Switch Project Title";
+        const string unsafeProjectSlug = "Switch Slug!";
+        var expectedProjectSlug = SlugGenerator.Generate(projectTitle);
+
+        var projectRoot = Path.Combine(_storageRoot, unsafeProjectSlug);
+        WriteFile(Path.Combine(projectRoot, "f.txt"), "project file");
+        await SeedProjectGraphAsync(
+            projectId, projectTitle, unsafeProjectSlug,
+            notebookId, "Switch Notebook Title", "switch-notebook",
+            Path.Combine(projectRoot, "f.txt"), storagePath: null);
+
+        Program.Main(
+        [
+            $"--ConnectionStrings:DefaultConnection={ConnectionString()}",
+            $"--FileStorage:Path={_storageRoot}",
+            $"--Database:Provider={DatabaseTestProvider.Current}",
+            "--apply",
+            "--run-ascii-slug-normalization"
+        ]);
+
+        Directory.Exists(projectRoot).Should().BeFalse();
+        File.Exists(Path.Combine(_storageRoot, expectedProjectSlug, "f.txt")).Should().BeTrue();
+        await AssertProjectSlugAsync(projectId, expectedProjectSlug);
     }
 
     private async Task SeedProjectGraphAsync(
