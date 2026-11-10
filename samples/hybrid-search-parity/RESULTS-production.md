@@ -1,6 +1,6 @@
 # Hybrid search parity results
 
-**Verdict: SWITCHABLE**. `prod-sqlserver` (baseline) vs `prod-postgres` (candidate), 152 query/scope pairs, run 2026-11-10 02:53 UTC.
+**Verdict: SWITCHABLE**. `prod-sqlserver` (baseline) vs `prod-postgres` (candidate), 152 query/scope pairs, run 2026-11-10 15:17 UTC.
 
 | Condition | Result | Value |
 |---|---|---|
@@ -12,7 +12,8 @@
 
 ## Environment
 
-- Sample commit: `90dc8683`
+- Sample commit: `ae77f06f`
+- Production code under test: commit `ae77f06f`, last changed in `1bbaee47`; 9 paths: `src/server/AntRunner.Chat/AntRunner.Chat.Abstractions`, `src/server/AntRunner.Chat/AntRunner.Chat.OpenRouter`, `src/server/Directory.Build.props`, `src/server/GuideAnts.Logging`, `src/server/GuideAnts.Usage`, `src/server/GuideAntsApi.BackgroundJobs`, `src/server/GuideAntsApi.DataModel`, `src/server/GuideAntsApi.DataModel.Postgres`, `src/server/HtmlAgilityPackExtensions`
 - known-differences.json: SHA-256 `50e330a6c088827aec732b2f5762bbf746c3e82f06cde9440fa8dee89d56a881`
 - Data files (SHA-256 from data/manifest.json):
   - `data/chunks.jsonl`: `0db7380eaa975ae042982c4cbe28955ad4065ba55382f87bca1cd18bd993be42`
@@ -416,6 +417,7 @@ Status: **acceptable** (punctuation: Hyphen/slash compounds such as \`published/
 
 Mean top-5 overlap 0.962 over 152 pairs; same #1 in 93.4%.
 130 differences: 39 scored-differently, 5 matched-one-side, 9 top-n-cut, 5 top-n-boundary-tie, 72 displaced.
+Diagnostics checked against the stores' own scores for 1520 top-5 hits: 0 disagree (each counts as unexplained).
 
 | Query | Scope | Overlap@5 | Same #1 | Differences |
 |---|---|---|---|---|
@@ -710,7 +712,7 @@ Extra and lost matches are distinct chunks across scopes P1 to P3 (P1/N1 is a su
 | Run | Pairs | Mean top-5 overlap | Same #1 | Extra matches | Lost matches |
 |---|---|---|---|---|---|
 | Quirk fixed on both engines (not production) | not available: Profile 'prod-sqlserver' runs the production searcher, which has no quirk-fixed variant (the full-text candidates are always table-wide). | | | | |
-| postgres-english | 152 | 0.949 | 91.4% | 152 | 135 |
+| postgres-english (the sample's own Postgres store, not production search) | 152 | 0.949 | 91.4% | 152 | 135 |
 
 ## Limits
 
@@ -719,4 +721,6 @@ Extra and lost matches are distinct chunks across scopes P1 to P3 (P1/N1 is a su
 - **Tie-break explanations.** 5 hybrid differences are explained as `top-n-boundary-tie`. They come from diagnostics whose tie-breaking among equal text ranks is unspecified, the same nondeterminism as production's own query.
 - **Stop lists differ.** SQL Server's system stoplist and Postgres's `english` list are not the same (for example single letters, digits, `not` and `use`). The token evidence above shows it where it matters.
 - **One corpus.** The evidence is a single corpus (`docs/*.md` at `9f8cd102`) and 38 saved queries.
+- **Saved query embeddings.** The production searchers get the saved query vectors from `data/`, so the live embedding path (`ProviderRoutedEmbeddingService`) is not exercised; everything after the embedding is production's.
+- **No quirk-fixed run.** Production's searchers have no variant that filters by scope before the top N. Informational rows labelled "the sample's own … store" are the sample's stores, not production variants.
 
