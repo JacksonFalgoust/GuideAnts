@@ -234,6 +234,38 @@ public sealed class VerdictTests : IDisposable
         Assert.Equal(["everyone"], KnownDifferences.ForCandidate(entries, "other").Select(e => e.Reason));
     }
 
+    /// <summary>A candidate's own entry wins over a general one for the same difference, wherever it sits in the file.</summary>
+    [Fact]
+    public void ACandidateSpecificEntryWinsOverAGeneralOneRegardlessOfOrder()
+    {
+        var entries = KnownDifferences.Load(WriteKnown($$"""
+            [ { "queryId": "Q19", "scope": "P2", "kind": "text-match", "candidateOnly": ["{{Id("a")}}"],
+                "category": "tokenization", "reason": "general", "decision": "blocker" },
+              { "queryId": "Q19", "scope": "P2", "kind": "text-match", "candidateOnly": ["{{Id("b")}}"], "candidate": "prod-postgres",
+                "category": "tokenization", "reason": "specific", "decision": "acceptable" } ]
+            """));
+
+        Assert.Equal(["specific"], KnownDifferences.ForCandidate(entries, "prod-postgres").Select(e => e.Reason));
+        Assert.Equal(["general"], KnownDifferences.ForCandidate(entries, "postgres").Select(e => e.Reason));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("prod-postgres")]
+    public void TwoEntriesForTheSameDifferenceAndCandidateAreRejected(string? candidate)
+    {
+        var field = candidate is null ? "" : $"\"candidate\": \"{candidate}\",";
+        var entries = KnownDifferences.Load(WriteKnown($$"""
+            [ { "queryId": "Q19", "scope": "P2", "kind": "text-match", "candidateOnly": [], {{field}}
+                "category": "tokenization", "reason": "one", "decision": "acceptable" },
+              { "queryId": "Q19", "scope": "P2", "kind": "text-match", "candidateOnly": [], {{field}}
+                "category": "tokenization", "reason": "two", "decision": "blocker" } ]
+            """));
+
+        var error = Assert.Throws<Parity.Core.ParityConfigurationException>(() => KnownDifferences.ForCandidate(entries, "prod-postgres"));
+        Assert.Contains("Q19/P2 (text-match) has 2 entries", error.Message);
+    }
+
     [Fact]
     public void StaleEntriesAreThoseWithNoMatchingDifference()
     {

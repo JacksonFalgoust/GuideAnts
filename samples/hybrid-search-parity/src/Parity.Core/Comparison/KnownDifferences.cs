@@ -67,9 +67,30 @@ public static class KnownDifferences
         return entries;
     }
 
-    /// <summary>The entries that apply to a run against <paramref name="candidateProfile"/>, in file order.</summary>
-    public static IReadOnlyList<KnownDifference> ForCandidate(IReadOnlyList<KnownDifference> entries, string candidateProfile) =>
-        entries.Where(e => e.Candidate is null || string.Equals(e.Candidate, candidateProfile, StringComparison.OrdinalIgnoreCase)).ToList();
+    /// <summary>
+    /// The entries that apply to a run against <paramref name="candidateProfile"/>: for each query, scope and kind, the
+    /// entry naming that candidate if there is one, otherwise the general entry (no candidate). File order never
+    /// decides; two entries at the same level for one difference are refused, since only one review can apply.
+    /// </summary>
+    public static IReadOnlyList<KnownDifference> ForCandidate(IReadOnlyList<KnownDifference> entries, string candidateProfile)
+    {
+        var applicable = entries.Where(e => e.Candidate is null || string.Equals(e.Candidate, candidateProfile, StringComparison.OrdinalIgnoreCase));
+        var chosen = new List<KnownDifference>();
+        foreach (var group in applicable.GroupBy(e => (e.QueryId, e.Scope, e.Kind)))
+        {
+            var specific = group.Where(e => e.Candidate is not null).ToList();
+            var level = specific.Count > 0 ? specific : group.ToList();
+            if (level.Count > 1)
+            {
+                throw new ParityConfigurationException(
+                    $"known-differences.json: {group.Key.QueryId}/{group.Key.Scope} ({group.Key.Kind}) has {level.Count} entries for candidate '{candidateProfile}'. Keep one, or name the candidate each applies to.");
+            }
+
+            chosen.Add(level[0]);
+        }
+
+        return chosen;
+    }
 
     public static ReviewStatus ReviewText(IReadOnlyList<KnownDifference> entries, string queryId, string scope, TextDiff diff)
     {
