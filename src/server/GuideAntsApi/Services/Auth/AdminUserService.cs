@@ -1,7 +1,6 @@
 using System.Data;
 using GuideAntsApi.Database;
 using GuideAntsApi.DataModel;
-using GuideAntsApi.DataModel.Database;
 using GuideAntsApi.DataModel.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -374,12 +373,14 @@ public sealed class AdminUserService : IAdminUserService
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
                 return result;
             }
-            catch (Exception ex) when (DatabaseErrors.IsSerializationFailure(ex))
+            catch (Exception) when (_db.Database.IsNpgsql())
             {
-                // Postgres only: a mutation that waited for the lock read a snapshot from before the other mutation
-                // committed, so Postgres aborted it (40001). The execution strategy retries the mutation (Npgsql
-                // treats 40001 as transient); clear the tracker first, or the retry would read back this attempt's
-                // modified entities instead of the committed rows.
+                // Postgres only. The execution strategy reruns the mutation after any transient Npgsql error: a
+                // serialization failure (40001: a mutation that waited for the lock read a snapshot from before the
+                // other mutation committed), a deadlock, a lock timeout or a broken connection, at SaveChanges or at
+                // the commit. Clear the tracker first, or the retry would read back this attempt's modified entities
+                // instead of the committed rows, and could report success with nothing saved. A non-transient error
+                // isn't retried and fails the request either way.
                 _db.ChangeTracker.Clear();
                 throw;
             }

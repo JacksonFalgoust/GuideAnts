@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Data.Common;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
@@ -11,7 +13,9 @@ using GuideAntsApi.IntegrationTests.Infrastructure;
 using GuideAntsApi.Services.Auth;
 using GuideAntsApi.Services.Conversations;
 using Microsoft.Data.SqlClient;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -393,6 +397,84 @@ public sealed class QueueAndLockBehaviorTests
         await ResetUsersAsync(factory);
     }
 
+    /// <summary>
+    /// Postgres only (#51). Any transient Npgsql error, not only 40001, makes the execution strategy rerun the admin
+    /// mutation. Here the first commit fails with a transient deadlock (40P01) after <c>SaveChanges</c> has written
+    /// the new role, so the transaction rolls back. With a dirty change tracker the retry would read back its own
+    /// already-changed role row (identity resolution), find nothing to save and report success while the database
+    /// still holds the old role.
+    /// </summary>
+    [TestMethod]
+    public async Task Admin_mutation_retried_after_a_transient_commit_failure_persists_on_postgres()
+    {
+        DatabaseTestProvider.RequirePostgres();
+        TransientCommitFailure.Exception().IsTransient.Should().BeTrue("the strategy retries only transient errors");
+
+        var factory = await GetFactoryAsync();
+        await ResetUsersAsync(factory);
+        var adminA = await SeedAdminAsync(factory, "transient.admin.a@example.com");
+        var adminB = await SeedAdminAsync(factory, "transient.admin.b@example.com");
+
+        var failure = new TransientCommitFailure("UPDATE \"UserRoles\"");
+        var builder = new DbContextOptionsBuilder<ApplicationDbContext>(_options);
+        builder.AddInterceptors(failure.Commands, failure.Transactions);
+        await using (var db = new ApplicationDbContext(builder.Options))
+        {
+            var service = new AdminUserService(db, new UserPasswordHasher());
+
+            var result = await service.ChangeRoleAsync(adminB, Role.Reader.ToString(), adminA);
+
+            result.IsSuccess.Should().BeTrue(result.Failure?.Message);
+            result.Value!.Role.Should().Be(Role.Reader);
+        }
+
+        failure.Injected.Should().Be(1);
+        await using (var verify = CreateContext())
+        {
+            (await verify.UserRoles.Where(r => r.UserId == adminB).Select(r => r.Role).SingleAsync())
+                .Should().Be(Role.Reader, "the reported change must be in the database");
+        }
+
+        await ResetUsersAsync(factory);
+    }
+
+    /// <summary>
+    /// Postgres only (#51). The registration's retry after a transient commit failure is safe without clearing the
+    /// change tracker: it reads only with <c>AsNoTracking</c> and adds new entities, and the failed attempt's
+    /// entities were accepted by its successful <c>SaveChanges</c>, so they are never saved again. One user exists
+    /// afterwards, and it is the one the response names.
+    /// </summary>
+    [TestMethod]
+    public async Task Registration_retried_after_a_transient_commit_failure_creates_one_user_on_postgres()
+    {
+        DatabaseTestProvider.RequirePostgres();
+
+        var factory = await GetFactoryAsync();
+        await ResetUsersAsync(factory);
+        var failure = new TransientCommitFailure("INSERT INTO \"Users\"");
+        await using var injected = factory.WithWebHostBuilder(host => host.ConfigureServices(services =>
+            services.ConfigureDbContext<ApplicationDbContext>(o => o.AddInterceptors(failure.Commands, failure.Transactions))));
+        using var client = injected.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/api/auth/register", new
+        {
+            name = "Transient Registration",
+            email = "transient.registration@example.com",
+            password = "Password123!"
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        var body = (await response.Content.ReadFromJsonAsync<AuthResponse>())!;
+        failure.Injected.Should().Be(1);
+        await using (var verify = CreateContext())
+        {
+            (await verify.Users.Select(u => u.Id).ToListAsync()).Should().Equal([body.UserId]);
+            (await verify.UserRoles.Select(r => r.Role).ToListAsync()).Should().Equal([Role.Admin]);
+        }
+
+        await ResetUsersAsync(factory);
+    }
+
     // ----- Foreign key violation detection (#18) -----
 
     /// <summary>The conversation lock's foreign key is checked at the insert, so a missing conversation is NotFound.</summary>
@@ -571,6 +653,73 @@ public sealed class QueueAndLockBehaviorTests
     }
 
     private sealed record AuthResponse(Guid UserId, string Name, string Email, string Role, bool MustChangePassword);
+
+    /// <summary>
+    /// Fails, once, the commit of a transaction whose connection ran a command containing <c>commandMarker</c>. It
+    /// throws a transient Postgres deadlock (40P01) before the commit reaches the server, so the transaction rolls back
+    /// and nothing it wrote is kept.
+    /// </summary>
+    private sealed class TransientCommitFailure(string commandMarker)
+    {
+        private readonly ConcurrentDictionary<DbConnection, byte> _marked = new();
+        private int _remaining = 1;
+        private int _injected;
+
+        public int Injected => Volatile.Read(ref _injected);
+
+        public DbCommandInterceptor Commands => new CommandMarker(this);
+
+        public DbTransactionInterceptor Transactions => new CommitBreaker(this);
+
+        public static PostgresException Exception()
+            => new("deadlock detected (simulated by the test at commit)", "ERROR", "ERROR", PostgresErrorCodes.DeadlockDetected);
+
+        private void Mark(DbCommand command)
+        {
+            if (command.Connection is not null && command.CommandText.Contains(commandMarker, StringComparison.Ordinal))
+            {
+                _marked[command.Connection] = 0;
+            }
+        }
+
+        private void BeforeCommit(DbTransaction transaction)
+        {
+            if (transaction.Connection is not null
+                && _marked.TryRemove(transaction.Connection, out _)
+                && Interlocked.Decrement(ref _remaining) >= 0)
+            {
+                Interlocked.Increment(ref _injected);
+                throw Exception();
+            }
+        }
+
+        private sealed class CommandMarker(TransientCommitFailure owner) : DbCommandInterceptor
+        {
+            public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+                DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
+            {
+                owner.Mark(command);
+                return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+            }
+
+            public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+                DbCommand command, CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+            {
+                owner.Mark(command);
+                return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
+            }
+        }
+
+        private sealed class CommitBreaker(TransientCommitFailure owner) : DbTransactionInterceptor
+        {
+            public override ValueTask<InterceptionResult> TransactionCommittingAsync(
+                DbTransaction transaction, TransactionEventData eventData, InterceptionResult result, CancellationToken cancellationToken = default)
+            {
+                owner.BeforeCommit(transaction);
+                return base.TransactionCommittingAsync(transaction, eventData, result, cancellationToken);
+            }
+        }
+    }
 
     private sealed class OptionsContextFactory(DbContextOptions<ApplicationDbContext> options) : IDbContextFactory<ApplicationDbContext>
     {
