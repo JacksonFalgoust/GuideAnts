@@ -99,20 +99,23 @@ The first production run showed exactly one change from the port: Q33's four ent
 
 Decision: `acceptable` (tokenization), recorded with `"candidate": "prod-postgres"`. A user searching "C#" gets C# content on both engines, and the ranking is the same in every scope. The port's four blockers stay, with `"candidate": "postgres"`, because the port still has the bare-letter behaviour.
 
-## E. The Postgres text score scale (production search, 2026-11-09)
+## E. The Postgres text score scale (production search, 2026-11-09, re-measured 2026-11-10)
 
 Parity report row #49 asked whether the Postgres text score needs rescaling. `ts_rank_cd(…, 32)` is `r / (r + 1)`, where `r` is the cover density with no length normalization: 0.091 for one occurrence of a one-word phrase, 0.375 for six. SQL Server's `RANK / 1000` is lower on prose chunks and depends on length.
+
+Every number below comes from [`tools/scale-measure`](tools/scale-measure/README.md). Its committed output is [`tools/scale-measure/results/scale-measure.txt`](tools/scale-measure/results/scale-measure.txt), run on freshly seeded `prod-sqlserver` and `prod-postgres` databases.
 
 **Ratio.** Postgres text score / SQL Server text score, for every (query, chunk) that both engines match in scopes P1 to P3 (`TextMatchAsync` on both production profiles): 376 pairs over 25 queries.
 
 | min | p10 | p25 | median | p75 | p90 | max | geometric mean |
 |---|---|---|---|---|---|---|---|
-| 0.18 | 3.13 | 4.78 | 5.68 | 6.49 | 6.49 | 28.57 | 4.82 |
+| 0.18 | 3.13 | 4.78 | 5.68 | 6.49 | 6.49 | 23.81 | 4.80 |
 
 - On prose chunks the ratio is 4 to 7 (for example Q01: SQL Server 0.0156, Postgres 0.0909).
 - On the short edge-case chunks it is reversed: SQL Server gives 0.176 and Postgres 0.032 to 0.091 (Q21 to Q24, Q28, Q31, Q32), because `CONTAINSTABLE` ranks a short document higher. So no single divisor maps one scale onto the other.
+- **SQL Server's ranks are not exactly repeatable across seedings.** In the first measurement (2026-11-09, an earlier seeding of the same data) Q33's mean SQL Server rank was 0.0450, against 0.0509 now, and the maximum ratio was 28.57. Every other query's numbers, and all Postgres ranks, were identical. `CONTAINSTABLE`'s RANK depends on the full-text index's internal state. The verdict metrics were the same in both runs.
 
-**Counterfactual.** The comparison was rerun with the official `ComparisonRunner` and `Verdict`, against `prod-sqlserver`. The candidate was production's Postgres SQL (read from `PostgresHybridSearcher.cs`) with the text score divided by `k`. The Postgres diagnostics' ranks were divided by the same `k`, so the explanations stay consistent. `k = 1` reproduces the real run exactly.
+**Counterfactual.** The comparison was rerun with the official `ComparisonRunner` and `Verdict`, against `prod-sqlserver`. The candidate was production's Postgres SQL (read from `PostgresHybridSearcher.cs`) with the text score divided by `k`. The Postgres diagnostics' ranks were divided by the same `k`, so the explanations stay consistent. `k = 1` reproduces the real run.
 
 "Exact phrase in top 5" counts the 51 query/scope pairs of exact and edge queries whose scope holds at least one ground-truth chunk (a whole-word, case-insensitive phrase match, `data/ground-truth.json`). It counts those whose top 5 includes one.
 
@@ -124,14 +127,30 @@ Parity report row #49 asked whether the Postgres text score needs rescaling. `ts
 | 5.68 (median ratio) | 0.995 | 99.3% | 0 | 41/51 | 41/51 |
 | 8 | 0.993 | 98.7% | 0 | 41/51 | 40/51 |
 
-**The 10 pairs whose #1 differs at k = 1:**
+**Per query group at k = 1.** The aggregate hides how close the exact-phrase group is:
+
+| Group | Pairs | Mean top-5 overlap | Same #1 |
+|---|---|---|---|
+| exact | 40 | 0.910 | 80.0% (at the 80% threshold) |
+| paraphrase | 32 | 1.000 | 100% |
+| edge | 64 | 0.972 | 98.4% |
+| error | 8 | 1.000 | 100% |
+| stress | 8 | 0.950 | 87.5% |
+
+**The 10 pairs whose #1 differs at k = 1.** "Contains the phrase" uses the ground-truth regex (`GroundTruth.PhraseRegex`: the words in order, separated only by whitespace).
 
 | Pair | SQL Server's #1 contains the phrase | Postgres's #1 contains the phrase |
 |---|---|---|
 | Q01 · P2, Q01 · P1/N1, Q03 · P3, Q05 · P2, Q06 · P1/N1, Q07 · P2, Q20 · P3 | no | yes (a ground-truth chunk) |
-| Q07 · P3, Q09 · P3, Q37 · P1 | yes | yes |
+| Q37 · P1 | no (E13, "published, guide-adjacent", the punctuation edge case) | yes (stress query, no ground truth recorded) |
+| Q07 · P3, Q09 · P3 | yes | yes |
 
 Each engine's #1 is also in the other's top 5 (at rank 2 to 5), except in Q01 · P2 and Q07 · P3: there Postgres's #1 isn't in SQL Server's top 5, and SQL Server's #1 is Postgres's #4 and #2.
 
-Decision: **keep the score as it is.** The scale is the main remaining source of ranking differences: rescaling would make Postgres rank almost exactly like SQL Server. But the verdict passes by a wide margin without it (0.962 against 0.9, 93.4% against 80%). In 7 of the 10 pairs whose #1 differs, Postgres puts a chunk containing the searched phrase first and SQL Server puts one that doesn't; in the other 3 both do, and in none is it the other way round. A rescale would give up 4 of the 51 exact-phrase finds to match SQL Server's weaker text signal. Under the functional bar (a user finds what they search for), that isn't an improvement. A constant divisor would also mis-scale short chunks (above). If matching SQL Server's order matters more than exact-phrase recall, the change is one line in `PostgresHybridSearcher` (`text_score / 5.68`, and the same for the diagnostics), but that means the production code has to change.
-
+Decision: **keep the score as it is.**
+- The scale is the main remaining source of ranking differences: rescaling would make Postgres rank almost exactly like SQL Server.
+- The verdict passes in aggregate without it (0.962 against 0.9, 93.4% against 80%). But the exact-phrase group sits at the threshold (80.0% same #1), so this is not a wide margin. 8 of its 40 pairs have a different #1, and rescaling removes almost all such differences (99.3% same #1 overall for k = 2 to 5.68).
+- In 8 of the 10 pairs whose #1 differs, Postgres puts a chunk containing the searched phrase first and SQL Server puts one that doesn't. In the other 2 both do, and in none is it the other way round.
+- A rescale would give up 4 of the 51 exact-phrase finds to match SQL Server's weaker text signal. Under the functional bar (a user finds what they search for), that isn't an improvement.
+- A constant divisor would also mis-scale short chunks (above).
+- If matching SQL Server's order matters more than exact-phrase recall, the change is one line in `PostgresHybridSearcher` (`text_score / 5.68`), plus the same in the parity diagnostics.

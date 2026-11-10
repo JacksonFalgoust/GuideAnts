@@ -1,0 +1,57 @@
+## 1. Text score ratio, Postgres / SQL Server (chunks both match, scopes P1 to P3)
+376 pairs over 25 queries
+min 0.18 | p10 3.13 | p25 4.78 | median 5.68 | p75 6.49 | p90 6.49 | max 23.81 | geometric mean 4.80
+  Q01: n=9 median ratio 5.68, mean text SQL Server 0.0156, Postgres 0.0909
+  Q02: n=43 median ratio 5.75, mean text SQL Server 0.0211, Postgres 0.1188
+  Q03: n=9 median ratio 5.35, mean text SQL Server 0.0264, Postgres 0.0993
+  Q04: n=17 median ratio 5.68, mean text SQL Server 0.0177, Postgres 0.1036
+  Q05: n=6 median ratio 4.13, mean text SQL Server 0.0335, Postgres 0.0909
+  Q06: n=5 median ratio 5.75, mean text SQL Server 0.0176, Postgres 0.1061
+  Q07: n=40 median ratio 5.24, mean text SQL Server 0.0263, Postgres 0.1287
+  Q08: n=9 median ratio 5.68, mean text SQL Server 0.0187, Postgres 0.1077
+  Q09: n=29 median ratio 5.68, mean text SQL Server 0.0291, Postgres 0.1246
+  Q10: n=16 median ratio 6.49, mean text SQL Server 0.0199, Postgres 0.1084
+  Q19: n=7 median ratio 6.99, mean text SQL Server 0.0401, Postgres 0.1126
+  Q20: n=61 median ratio 5.35, mean text SQL Server 0.0244, Postgres 0.1069
+  Q21: n=1 median ratio 0.27, mean text SQL Server 0.1760, Postgres 0.0476
+  Q22: n=1 median ratio 0.52, mean text SQL Server 0.1760, Postgres 0.0909
+  Q23: n=1 median ratio 0.52, mean text SQL Server 0.1760, Postgres 0.0909
+  Q24: n=1 median ratio 0.52, mean text SQL Server 0.1760, Postgres 0.0909
+  Q26: n=3 median ratio 5.35, mean text SQL Server 0.0697, Postgres 0.0909
+  Q27: n=28 median ratio 4.46, mean text SQL Server 0.0445, Postgres 0.1601
+  Q28: n=1 median ratio 0.18, mean text SQL Server 0.1760, Postgres 0.0323
+  Q29: n=4 median ratio 3.64, mean text SQL Server 0.0630, Postgres 0.0909
+  Q30: n=3 median ratio 5.35, mean text SQL Server 0.0700, Postgres 0.0909
+  Q31: n=1 median ratio 0.52, mean text SQL Server 0.1760, Postgres 0.0909
+  Q32: n=1 median ratio 0.52, mean text SQL Server 0.1760, Postgres 0.0909
+  Q33: n=10 median ratio 6.86, mean text SQL Server 0.0509, Postgres 0.2714
+  Q37: n=70 median ratio 5.68, mean text SQL Server 0.0382, Postgres 0.1304
+
+## 2. Production's Postgres text score divided by k, against prod-sqlserver
+Exact phrase in top 5: of the exact and edge query/scope pairs whose scope holds a ground-truth chunk, those whose top 5 holds one.
+k | mean top-5 overlap | same #1 | unexplained | exact phrase in top 5, SQL Server | exact phrase in top 5, Postgres
+1 | 0.962 | 93.4% | 0 | 41/51 | 45/51
+2 | 0.976 | 99.3% | 0 | 41/51 | 44/51
+4 | 0.991 | 99.3% | 0 | 41/51 | 42/51
+5.68 | 0.995 | 99.3% | 0 | 41/51 | 41/51
+8 | 0.993 | 98.7% | 0 | 41/51 | 40/51
+
+## 3. Per query group at k = 1 (pairs with no error)
+  edge: 64 pairs, mean top-5 overlap 0.972, same #1 98.4%
+  error: 8 pairs, mean top-5 overlap 1.000, same #1 100.0%
+  exact: 40 pairs, mean top-5 overlap 0.910, same #1 80.0%
+  paraphrase: 32 pairs, mean top-5 overlap 1.000, same #1 100.0%
+  stress: 8 pairs, mean top-5 overlap 0.950, same #1 87.5%
+
+## 4. Pairs whose #1 differs at k = 1
+pair | SQL Server #1 (phrase? ground truth?) | Postgres #1 (phrase? ground truth?) | SQL Server #1's rank on Postgres | Postgres #1's rank on SQL Server
+Q01 · P2 (exact, "conversation lock") | docs/client-navigation-user-actions.md#24 (no phrase, not ground truth) | docs/conversation-stream-reconnect-and-cancel-proposal.md#1 (phrase, ground truth) | #4 | not in top 5
+Q01 · P1/N1 (exact, "conversation lock") | docs/conversation-service-composition-plan.md#16 (no phrase, not ground truth) | docs/conversation-service-composition-plan.md#6 (phrase, ground truth) | #2 | #2
+Q03 · P3 (exact, "host folder mounts") | docs/host-folder-notebook-mounts-plan.md#3 (no phrase, not ground truth) | docs/host-folder-notebook-mounts-plan.md#23 (phrase, ground truth) | #2 | #2
+Q05 · P2 (exact, "tool call limits") | docs/tool-call-limits-proposal.md#13 (no phrase, not ground truth) | docs/tool-call-limits-proposal.md#0 (phrase, ground truth) | #2 | #2
+Q06 · P1/N1 (exact, "local model onboarding") | docs/llama-model-download-and-runtime-management.md#2 (no phrase, not ground truth) | docs/llama-model-download-and-runtime-management.md#1 (phrase, ground truth) | #3 | #2
+Q07 · P2 (exact, "Docker Desktop") | docs/setup-guide.md#9 (no phrase, not ground truth) | docs/rocm-container-runtime-and-wsl-setup.md#3 (phrase, ground truth) | #4 | #5
+Q07 · P3 (exact, "Docker Desktop") | docs/host-folder-notebook-mounts-plan.md#21 (phrase, ground truth) | docs/host-folder-notebook-mounts-plan.md#1 (phrase, ground truth) | #2 | not in top 5
+Q09 · P3 (exact, "GuideAnts Guide") | docs/guideants-guide-implementation-plan.md#4 (phrase, ground truth) | docs/guideants-guide-implementation-plan.md#0 (phrase, ground truth) | #2 | #2
+Q20 · P3 (edge, "llama.cpp") | docs/adding-models.md#4 (no phrase, not ground truth) | docs/chat-providers-architecture-and-extensibility.md#6 (phrase, ground truth) | #2 | #4
+Q37 · P1 (stress, "published guide") | inputs/edge-cases.json#E13 (no phrase, not ground truth) | docs/guideants-feature-value-framing-v4.md#6 (phrase, not ground truth) | #5 | #2

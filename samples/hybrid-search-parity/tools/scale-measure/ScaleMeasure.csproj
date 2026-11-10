@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Measures the Postgres text score scale against SQL Server on the seeded production profiles (parity report #49).
+       Not part of any verdict; see README.md. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>ScaleMeasure</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Parity.Cli/Parity.Cli.csproj" />
+  </ItemGroup>
+</Project>
