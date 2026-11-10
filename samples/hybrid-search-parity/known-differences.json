@@ -448,6 +448,7 @@
       "f37c4c35-fbb8-5ec4-8639-ff1bfe48fa9a",
       "f598d739-c116-54ee-8770-b9e53bbf7870"
     ],
+    "candidate": "postgres",
     "category": "punctuation",
     "reason": "Postgres's parser drops the `#`, so the phrase \"C#\" becomes the bare letter `c` (it matches 120 chunks table-wide against 10 for SQL Server; the Postgres-only matches are 30 in P1, 65 in P2 and 15 in P3, 110 in total, and P1/N1's 4 are a subset of P1's 30). Symbol terms like \"C#\" are realistic queries in a .NET product; a custom dictionary cannot help, because the default parser drops `#` before dictionaries see the text; the realistic options are a custom text search parser, or normalising terms like C#, C++ and .NET (for example to csharp) in both the indexed text and the query. P1 is unaffected in top-5 overlap and #1 (the damage shows in P2 and P3).",
     "decision": "blocker",
@@ -526,6 +527,7 @@
       "ef84cba7-f762-5dd3-82e4-c8af5357e55b",
       "f9d0eeb8-b902-52c1-a073-516b75d0489c"
     ],
+    "candidate": "postgres",
     "category": "punctuation",
     "reason": "Postgres's parser drops the `#`, so the phrase \"C#\" becomes the bare letter `c` (it matches 120 chunks table-wide against 10 for SQL Server; the Postgres-only matches are 30 in P1, 65 in P2 and 15 in P3, 110 in total, and P1/N1's 4 are a subset of P1's 30). Symbol terms like \"C#\" are realistic queries in a .NET product; a custom dictionary cannot help, because the default parser drops `#` before dictionaries see the text; the realistic options are a custom text search parser, or normalising terms like C#, C++ and .NET (for example to csharp) in both the indexed text and the query. Measured ranking impact is material in P2: top-5 lists fully disjoint (overlap@5 0.00) with a different #1; Postgres's five are permission-table headers \"A | C | R\" with no C# content, SQL Server's are .NET code chunks.",
     "decision": "blocker",
@@ -554,6 +556,7 @@
       "fd7aaea6-777e-5743-8d22-57be967da717",
       "fe51061a-baa1-56de-9f7a-5b2730b18e47"
     ],
+    "candidate": "postgres",
     "category": "punctuation",
     "reason": "Postgres's parser drops the `#`, so the phrase \"C#\" becomes the bare letter `c` (it matches 120 chunks table-wide against 10 for SQL Server; the Postgres-only matches are 30 in P1, 65 in P2 and 15 in P3, 110 in total, and P1/N1's 4 are a subset of P1's 30). Symbol terms like \"C#\" are realistic queries in a .NET product; a custom dictionary cannot help, because the default parser drops `#` before dictionaries see the text; the realistic options are a custom text search parser, or normalising terms like C#, C++ and .NET (for example to csharp) in both the indexed text and the query. Measured ranking impact in P3: different #1 (same five chunks reordered).",
     "decision": "blocker",
@@ -571,11 +574,106 @@
       "d227d9c2-9bbd-5f5e-82b9-92608509a7f2",
       "ece091e1-d318-5763-bb50-d338ea13bf54"
     ],
+    "candidate": "postgres",
     "category": "punctuation",
     "reason": "Postgres's parser drops the `#`, so the phrase \"C#\" becomes the bare letter `c` (it matches 120 chunks table-wide against 10 for SQL Server; the Postgres-only matches are 30 in P1, 65 in P2 and 15 in P3, 110 in total, and P1/N1's 4 are a subset of P1's 30). Symbol terms like \"C#\" are realistic queries in a .NET product; a custom dictionary cannot help, because the default parser drops `#` before dictionaries see the text; the realistic options are a custom text search parser, or normalising terms like C#, C++ and .NET (for example to csharp) in both the indexed text and the query. P1/N1 is unaffected in top-5 overlap and #1 (the damage shows in P2 and P3).",
     "decision": "blocker",
     "reviewedBy": "Claude (on behalf of JacksonFalgoust, who delegated the review)",
     "reviewedOn": "2026-10-27"
+  },
+  {
+    "queryId": "Q33",
+    "scope": "P1",
+    "kind": "text-match",
+    "baselineOnly": [],
+    "candidateOnly": [
+      "730d7aef-8730-50dc-88d0-caf6863ec249",
+      "bf641551-e226-5f84-a9cc-bea297d2601f",
+      "ece091e1-d318-5763-bb50-d338ea13bf54",
+      "f953b78b-2a47-5029-963a-2a4e0a017334"
+    ],
+    "candidate": "prod-postgres",
+    "category": "tokenization",
+    "reason": "Production's Postgres search (`PostgresHybridSearcher`) rewrites the standalone term `C#` to `csharp` in the indexed text and in the query (`guideants_fts_normalize`), so the phrase \"C#\" no longer becomes the bare letter `c` (the blocker recorded for the sample's port). It matches every chunk SQL Server matches, plus the chunks whose only C# is a ```csharp code fence: the fence's language tag is the same lexeme, while SQL Server's word breaker keeps `c#` and `csharp` apart. Each Postgres-only chunk (4 in P1, 14 in P2, 16 in P3; P1/N1's 4 are P1's) contains a ```csharp fence and C# code, and none matched only a letter c. Ranking is unaffected: top-5 overlap 1.00, the same #1 and zero hybrid differences in all four scopes.",
+    "decision": "acceptable",
+    "reviewedBy": "Claude (on behalf of JacksonFalgoust, who delegated the review)",
+    "reviewedOn": "2026-11-09"
+  },
+  {
+    "queryId": "Q33",
+    "scope": "P2",
+    "kind": "text-match",
+    "baselineOnly": [],
+    "candidateOnly": [
+      "07e12f19-d46d-5e84-8ed6-743bdd982e12",
+      "14a234e8-50e3-532b-83d9-3374aada3871",
+      "14f7916c-2561-5a4c-9f2f-8cd370602285",
+      "209f64fe-40ab-58d7-af5a-ad214594add7",
+      "34968795-876d-5166-9c65-5fa1bedc88b0",
+      "3da75e09-d576-54bf-88f6-d1f62ec63d72",
+      "7b633653-7558-5602-9e3f-75f7e8b797bd",
+      "8fc8ee02-0b0c-5ec8-a176-eb3bf686974e",
+      "ab936d00-e221-52a2-a840-8cf3cf30df56",
+      "ad2beae4-fc8d-5c24-a428-5d635d3cb733",
+      "bf9dbcd1-566b-52e7-a938-f87bf5145af2",
+      "d80ac541-ab17-52d0-a932-a32484e18008",
+      "f01d1af0-6b8a-5bf8-812e-425b7134423e",
+      "ff7b68fe-c225-5f5e-a84d-9ad6bb8004cb"
+    ],
+    "candidate": "prod-postgres",
+    "category": "tokenization",
+    "reason": "Production's Postgres search (`PostgresHybridSearcher`) rewrites the standalone term `C#` to `csharp` in the indexed text and in the query (`guideants_fts_normalize`), so the phrase \"C#\" no longer becomes the bare letter `c` (the blocker recorded for the sample's port). It matches every chunk SQL Server matches, plus the chunks whose only C# is a ```csharp code fence: the fence's language tag is the same lexeme, while SQL Server's word breaker keeps `c#` and `csharp` apart. Each Postgres-only chunk (4 in P1, 14 in P2, 16 in P3; P1/N1's 4 are P1's) contains a ```csharp fence and C# code, and none matched only a letter c. Ranking is unaffected: top-5 overlap 1.00, the same #1 and zero hybrid differences in all four scopes.",
+    "decision": "acceptable",
+    "reviewedBy": "Claude (on behalf of JacksonFalgoust, who delegated the review)",
+    "reviewedOn": "2026-11-09"
+  },
+  {
+    "queryId": "Q33",
+    "scope": "P3",
+    "kind": "text-match",
+    "baselineOnly": [],
+    "candidateOnly": [
+      "11c189b5-72a7-5bf4-86e9-903fcc25c830",
+      "1b00952d-78d5-55e5-b23f-3333fb87543e",
+      "25c8c0c1-160c-5398-9453-1b3acdb0d094",
+      "3c67dabb-ad32-50e9-a0a2-b6f162582646",
+      "53ef8ee9-9d64-5d68-a4b5-31278d10595c",
+      "6daf3376-8951-5b9a-8537-1ddb53145b3c",
+      "6f1ba090-101b-578f-a9f2-92c588558c61",
+      "85cbae4e-91c9-562c-8e30-316fcb1a8da2",
+      "8e744fb8-656c-5f10-b5f6-bcb1664181bc",
+      "9cbeea68-285a-5701-b9ba-219d6807a4a3",
+      "a03d78e8-b3f1-5a0b-b0ec-f6228bd005df",
+      "a1d65bc7-8770-599e-9606-8f85be4736ad",
+      "b658e39a-6eb3-55d1-a911-80cc72113ce8",
+      "dc0b9583-c2b8-59b5-81e9-857cf548df5f",
+      "f29afca8-4e21-5f15-a589-3622c04495df",
+      "fe51061a-baa1-56de-9f7a-5b2730b18e47"
+    ],
+    "candidate": "prod-postgres",
+    "category": "tokenization",
+    "reason": "Production's Postgres search (`PostgresHybridSearcher`) rewrites the standalone term `C#` to `csharp` in the indexed text and in the query (`guideants_fts_normalize`), so the phrase \"C#\" no longer becomes the bare letter `c` (the blocker recorded for the sample's port). It matches every chunk SQL Server matches, plus the chunks whose only C# is a ```csharp code fence: the fence's language tag is the same lexeme, while SQL Server's word breaker keeps `c#` and `csharp` apart. Each Postgres-only chunk (4 in P1, 14 in P2, 16 in P3; P1/N1's 4 are P1's) contains a ```csharp fence and C# code, and none matched only a letter c. Ranking is unaffected: top-5 overlap 1.00, the same #1 and zero hybrid differences in all four scopes.",
+    "decision": "acceptable",
+    "reviewedBy": "Claude (on behalf of JacksonFalgoust, who delegated the review)",
+    "reviewedOn": "2026-11-09"
+  },
+  {
+    "queryId": "Q33",
+    "scope": "P1/N1",
+    "kind": "text-match",
+    "baselineOnly": [],
+    "candidateOnly": [
+      "730d7aef-8730-50dc-88d0-caf6863ec249",
+      "bf641551-e226-5f84-a9cc-bea297d2601f",
+      "ece091e1-d318-5763-bb50-d338ea13bf54",
+      "f953b78b-2a47-5029-963a-2a4e0a017334"
+    ],
+    "candidate": "prod-postgres",
+    "category": "tokenization",
+    "reason": "Production's Postgres search (`PostgresHybridSearcher`) rewrites the standalone term `C#` to `csharp` in the indexed text and in the query (`guideants_fts_normalize`), so the phrase \"C#\" no longer becomes the bare letter `c` (the blocker recorded for the sample's port). It matches every chunk SQL Server matches, plus the chunks whose only C# is a ```csharp code fence: the fence's language tag is the same lexeme, while SQL Server's word breaker keeps `c#` and `csharp` apart. Each Postgres-only chunk (4 in P1, 14 in P2, 16 in P3; P1/N1's 4 are P1's) contains a ```csharp fence and C# code, and none matched only a letter c. Ranking is unaffected: top-5 overlap 1.00, the same #1 and zero hybrid differences in all four scopes.",
+    "decision": "acceptable",
+    "reviewedBy": "Claude (on behalf of JacksonFalgoust, who delegated the review)",
+    "reviewedOn": "2026-11-09"
   },
   {
     "queryId": "Q37",

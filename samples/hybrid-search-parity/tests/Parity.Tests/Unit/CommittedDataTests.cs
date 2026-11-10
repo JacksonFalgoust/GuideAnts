@@ -1,4 +1,5 @@
 using Parity.Core;
+using Parity.Core.Comparison;
 using Parity.Core.Corpus;
 using Parity.Core.Data;
 using Parity.Core.Model;
@@ -14,6 +15,24 @@ public class CommittedDataTests
 
     private static IReadOnlyList<ChunkDraft> FreshDrafts() =>
         CorpusBuilder.Build(new GitDocsSource(RepoPaths.FindRepoRoot(), ProductionSources.Commit).ReadDocs(), DataStore.ReadEdgeCases(Root));
+
+    /// <summary>
+    /// Reviews are looked up by query, scope and kind, so for each candidate profile at most one entry may apply to a
+    /// given difference; a second would be silently ignored. Q33 is reviewed once per candidate.
+    /// </summary>
+    [Theory]
+    [InlineData("postgres")]
+    [InlineData("prod-postgres")]
+    public void CommittedKnownDifferencesHaveOneEntryPerDifferenceForEachCandidate(string candidate)
+    {
+        var entries = KnownDifferences.ForCandidate(KnownDifferences.Load(Path.Combine(Root, "known-differences.json")), candidate);
+        var duplicates = entries.GroupBy(e => (e.QueryId, e.Scope, e.Kind)).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
+
+        Assert.Empty(duplicates);
+        Assert.Equal(26, entries.Count);
+        Assert.Equal(4, entries.Count(e => e.QueryId == "Q33"));
+        Assert.All(entries.Where(e => e.QueryId == "Q33"), e => Assert.Equal(candidate, e.Candidate));
+    }
 
     [Fact]
     public void ManifestRecordsThePinnedCorpusModelAndSources()

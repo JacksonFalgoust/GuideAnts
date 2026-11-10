@@ -1,8 +1,8 @@
 # Review notes: the evidence behind the Q09, Q03 and Q33 reviews
 
-This is the read-only investigation done before the corresponding entries in `known-differences.json` were written. It supports those entries; it is not itself part of the verdict.
+This is the read-only investigation done before the corresponding entries in `known-differences.json` were written. It supports those entries; it is not itself part of the verdict. Sections A to C are about the sample's port (`sqlserver` vs `postgres`); D and E are about production search (`prod-sqlserver` vs `prod-postgres`).
 
-Baseline = SQL Server, candidate = Postgres (config `parity_english_nostem`).
+Sections A to C: baseline = SQL Server, candidate = Postgres (config `parity_english_nostem`).
 Method: `CONTAINSTABLE('"phrase"')` vs `"ContentTsv" @@ phraseto_tsquery(...)` run over the chunk ids from data/chunks.jsonl; `ts_debug` on the sentences.
 Postgres queries: `phraseto_tsquery` -> `'guideants' <-> 'guide'` and `'host' <-> 'folder' <-> 'mounts'`.
 
@@ -79,3 +79,59 @@ Relevance to the C# language:
 
 Conclusion: the P2 top-5 are fully disjoint, and the difference is material. A 1-char token artifact (`#` dropped, 'c' matches column headers) distorts the Postgres top results even at text weight 0.3.
 Cause: tokenization (punctuation `#` dropped and single-letter lexeme, not filtered as a stop word).
+
+## D. Q33 "C#" on production search (`prod-postgres`, 2026-11-09)
+
+Production's Postgres search normalizes the query and the indexed text with `guideants_fts_normalize`, so `phraseto_tsquery('guideants_english_nostem', guideants_fts_normalize('C#'))` is `'csharp'`. SQL Server's tokens for the query are unchanged (`c#`).
+
+The first production run showed exactly one change from the port: Q33's four entries were `SNAPSHOT CHANGED`. Every other difference had the port's chunk IDs. The new Q33 difference:
+
+| Scope | Baseline only | Candidate only | Overlap@5 | Same #1 | Hybrid differences |
+|---|---|---|---|---|---|
+| P1 | 0 | 4 | 1.00 | yes | 0 |
+| P2 | 0 | 14 | 1.00 | yes | 0 |
+| P3 | 0 | 16 | 1.00 | yes | 0 |
+| P1/N1 | 0 | 4 (P1's) | 1.00 | yes | 0 |
+
+- Postgres matches every chunk SQL Server matches (no baseline-only chunk), and the bare letter `c` matches nothing.
+- Checked by ID against `data/chunks.jsonl`: each of the 34 Postgres-only chunks contains a ```` ```csharp ```` code fence and no standalone `C#`. All 41 occurrences of the word `csharp` in those chunks are fence language tags. So "C#" also finds chunks of C# code, because the tag is the lexeme `C#` is rewritten to. SQL Server keeps `c#` and `csharp` as different tokens.
+- The P2 top 5 is identical on both providers (the `.NET` code chunks, text score 0 on both). In the port it was fully disjoint.
+
+Decision: `acceptable` (tokenization), recorded with `"candidate": "prod-postgres"`. A user searching "C#" gets C# content on both engines, and the ranking is the same in every scope. The port's four blockers stay, with `"candidate": "postgres"`, because the port still has the bare-letter behaviour.
+
+## E. The Postgres text score scale (production search, 2026-11-09)
+
+Parity report row #49 asked whether the Postgres text score needs rescaling. `ts_rank_cd(…, 32)` is `r / (r + 1)`, where `r` is the cover density with no length normalization: 0.091 for one occurrence of a one-word phrase, 0.375 for six. SQL Server's `RANK / 1000` is lower on prose chunks and depends on length.
+
+**Ratio.** Postgres text score / SQL Server text score, for every (query, chunk) that both engines match in scopes P1 to P3 (`TextMatchAsync` on both production profiles): 376 pairs over 25 queries.
+
+| min | p10 | p25 | median | p75 | p90 | max | geometric mean |
+|---|---|---|---|---|---|---|---|
+| 0.18 | 3.13 | 4.78 | 5.68 | 6.49 | 6.49 | 28.57 | 4.82 |
+
+- On prose chunks the ratio is 4 to 7 (for example Q01: SQL Server 0.0156, Postgres 0.0909).
+- On the short edge-case chunks it is reversed: SQL Server gives 0.176 and Postgres 0.032 to 0.091 (Q21 to Q24, Q28, Q31, Q32), because `CONTAINSTABLE` ranks a short document higher. So no single divisor maps one scale onto the other.
+
+**Counterfactual.** The comparison was rerun with the official `ComparisonRunner` and `Verdict`, against `prod-sqlserver`. The candidate was production's Postgres SQL (read from `PostgresHybridSearcher.cs`) with the text score divided by `k`. The Postgres diagnostics' ranks were divided by the same `k`, so the explanations stay consistent. `k = 1` reproduces the real run exactly.
+
+"Exact phrase in top 5" counts the 51 query/scope pairs of exact and edge queries whose scope holds at least one ground-truth chunk (a whole-word, case-insensitive phrase match, `data/ground-truth.json`). It counts those whose top 5 includes one.
+
+| k | Mean top-5 overlap | Same #1 | Unexplained | Exact phrase in top 5: SQL Server | Exact phrase in top 5: Postgres |
+|---|---|---|---|---|---|
+| 1 (production) | 0.962 | 93.4% | 0 | 41/51 | 45/51 |
+| 2 | 0.976 | 99.3% | 0 | 41/51 | 44/51 |
+| 4 | 0.991 | 99.3% | 0 | 41/51 | 42/51 |
+| 5.68 (median ratio) | 0.995 | 99.3% | 0 | 41/51 | 41/51 |
+| 8 | 0.993 | 98.7% | 0 | 41/51 | 40/51 |
+
+**The 10 pairs whose #1 differs at k = 1:**
+
+| Pair | SQL Server's #1 contains the phrase | Postgres's #1 contains the phrase |
+|---|---|---|
+| Q01 · P2, Q01 · P1/N1, Q03 · P3, Q05 · P2, Q06 · P1/N1, Q07 · P2, Q20 · P3 | no | yes (a ground-truth chunk) |
+| Q07 · P3, Q09 · P3, Q37 · P1 | yes | yes |
+
+Each engine's #1 is also in the other's top 5 (at rank 2 to 5), except in Q01 · P2 and Q07 · P3: there Postgres's #1 isn't in SQL Server's top 5, and SQL Server's #1 is Postgres's #4 and #2.
+
+Decision: **keep the score as it is.** The scale is the main remaining source of ranking differences: rescaling would make Postgres rank almost exactly like SQL Server. But the verdict passes by a wide margin without it (0.962 against 0.9, 93.4% against 80%). In 7 of the 10 pairs whose #1 differs, Postgres puts a chunk containing the searched phrase first and SQL Server puts one that doesn't; in the other 3 both do, and in none is it the other way round. A rescale would give up 4 of the 51 exact-phrase finds to match SQL Server's weaker text signal. Under the functional bar (a user finds what they search for), that isn't an improvement. A constant divisor would also mis-scale short chunks (above). If matching SQL Server's order matters more than exact-phrase recall, the change is one line in `PostgresHybridSearcher` (`text_score / 5.68`, and the same for the diagnostics), but that means the production code has to change.
+
