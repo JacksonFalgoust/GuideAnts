@@ -90,7 +90,7 @@ public class ReportTests
 
     [Fact]
     public void ADirtySampleIsFlagged() =>
-        Assert.Contains("the sample directory has uncommitted changes (other than RESULTS.md)", MarkdownReport.Render(Report(true, Clean())));
+        Assert.Contains("the sample directory has uncommitted changes (other than RESULTS.md and RESULTS-production.md)", MarkdownReport.Render(Report(true, Clean())));
 
     [Fact]
     public void TheEnvironmentPrintsTheReviewFileAndDataFileHashes()

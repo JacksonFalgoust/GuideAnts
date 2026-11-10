@@ -12,7 +12,7 @@ public static class ExitCodes
 public sealed record CliArgs(string Command, IReadOnlyList<string> Positionals, IReadOnlyDictionary<string, string?> Options)
 {
     private static readonly HashSet<string> Flags = ["--all", "--quirk-fixed"];
-    private static readonly HashSet<string> Valued = ["--profile", "--scope", "--out", "--query", "--corpus-commit"];
+    private static readonly HashSet<string> Valued = ["--profile", "--scope", "--out", "--query", "--corpus-commit", "--baseline", "--candidate"];
 
     public static CliArgs Parse(string[] args)
     {

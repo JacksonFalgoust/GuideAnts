@@ -29,6 +29,16 @@ public static class PostgresSchema
         }
     }
 
+    /// <summary>A text normalizer function name is spliced into queries too, so the same rule applies.</summary>
+    public static void ValidateFunctionName(string function)
+    {
+        if (!ConfigName.IsMatch(function))
+        {
+            throw new ParityConfigurationException(
+                $"Text normalizer '{function}' isn't a valid function name (lowercase letters, digits and underscores only).");
+        }
+    }
+
     public static string AddTsvColumn(string config) =>
         $"""ALTER TABLE "DocumentChunks" ADD COLUMN "ContentTsv" tsvector GENERATED ALWAYS AS (to_tsvector('{config}'::regconfig, "Content")) STORED""";
 }

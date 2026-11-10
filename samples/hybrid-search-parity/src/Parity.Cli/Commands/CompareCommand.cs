@@ -22,6 +22,7 @@ public sealed class CompareCommand(
 
     public async Task<int> RunAsync(CliArgs args, ParitySettings settings, CancellationToken ct)
     {
+        ChooseProfiles(args, settings);
         var data = DataStore.Load(sampleRoot);
         if (args.Get("--query") is { } live)
         {
@@ -33,15 +34,24 @@ public sealed class CompareCommand(
         await using var candidate = engineFactory(settings, settings.Parity.Candidate);
         var baselineInfo = await EnsureSeededAsync(baseline, data, ct);
         var candidateInfo = await EnsureSeededAsync(candidate, data, ct);
-        var known = KnownDifferences.Load(Path.Combine(sampleRoot, KnownDifferencesFile));
+        var known = KnownDifferences.ForCandidate(KnownDifferences.Load(Path.Combine(sampleRoot, KnownDifferencesFile)), candidate.Profile);
         var progress = new InlineProgress(message => output.WriteLine($"  {message}"));
 
         output.WriteLine($"Comparing {baseline.Profile} (baseline) with {candidate.Profile} (candidate)...");
         var pairs = await new ComparisonRunner(baseline, candidate, data, settings, known).RunAsync(ParityScopes.All, ct, progress: progress);
 
         output.WriteLine("Informational: quirk fixed on both engines...");
-        var quirkPairs = await new ComparisonRunner(baseline, candidate, data, settings, []).RunAsync(ParityScopes.All, ct, filterBeforeTopN: true);
-        var quirk = InformationalSummary.From("Quirk fixed on both engines (not production)", quirkPairs, withMatchCounts: false);
+        const string quirkLabel = "Quirk fixed on both engines (not production)";
+        InformationalSummary quirk;
+        try
+        {
+            var quirkPairs = await new ComparisonRunner(baseline, candidate, data, settings, []).RunAsync(ParityScopes.All, ct, filterBeforeTopN: true);
+            quirk = InformationalSummary.From(quirkLabel, quirkPairs, withMatchCounts: false);
+        }
+        catch (UnsupportedQueryException ex)
+        {
+            quirk = InformationalSummary.Unavailable(quirkLabel, ex.Message);
+        }
 
         var profiles = new List<InformationalSummary>();
         foreach (var name in settings.Parity.Informational)
@@ -57,7 +67,7 @@ public sealed class CompareCommand(
             data.Manifest, settings.Parity.Thresholds, settings.Parity.VectorTolerance, settings.Parity.TieTolerance,
             settings.Images.SqlServer, await probe.ImageDigestAsync(settings.Images.SqlServer, ct),
             settings.Images.Postgres, await probe.ImageDigestAsync(settings.Images.Postgres, ct),
-            KnownDifferencesHash(), SettingsDrift.Differences(AppConfig.Load(sampleRoot, includeLocalOverrides: false, environment: _ => null), settings));
+            KnownDifferencesHash(), SettingsDrift.Differences(CommittedSettings(args), settings));
         var labels = data.Chunks.ToDictionary(c => c.Id, c => c.Kind == ChunkKind.Edge ? c.SourcePath : $"{c.SourcePath}#{c.ChunkIndex}");
         var report = new ComparisonReport(context, pairs, verdict, quirk, profiles, KnownDifferences.FindStale(known, pairs), labels);
 
@@ -69,6 +79,21 @@ public sealed class CompareCommand(
         }
 
         return verdict.Switchable ? ExitCodes.Success : ExitCodes.NotSwitchable;
+    }
+
+    /// <summary>--baseline and --candidate pick the profiles for this run instead of Parity:Baseline and Parity:Candidate.</summary>
+    private static void ChooseProfiles(CliArgs args, ParitySettings settings)
+    {
+        settings.Parity.Baseline = args.Get("--baseline") ?? settings.Parity.Baseline;
+        settings.Parity.Candidate = args.Get("--candidate") ?? settings.Parity.Candidate;
+    }
+
+    /// <summary>appsettings.json alone, with this run's profile choice: a profile picked on the command line isn't drift.</summary>
+    private ParitySettings CommittedSettings(CliArgs args)
+    {
+        var committed = AppConfig.Load(sampleRoot, includeLocalOverrides: false, environment: _ => null);
+        ChooseProfiles(args, committed);
+        return committed;
     }
 
     /// <summary>Comparing an engine with itself would "pass" trivially, so refuse the same profile or the same database.</summary>

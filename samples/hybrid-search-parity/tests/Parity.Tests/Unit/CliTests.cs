@@ -39,8 +39,9 @@ public sealed class CliTests : IDisposable
     {
         var settings = AppConfig.Load(RepoPaths.FindSampleRoot(), environment: _ => null, includeLocalOverrides: false);
 
-        Assert.Equal(new[] { "postgres", "postgres-english", "sqlserver" }, settings.Profiles.Keys.Order());
+        Assert.Equal(new[] { "postgres", "postgres-english", "prod-postgres", "prod-sqlserver", "sqlserver" }, settings.Profiles.Keys.Order());
         Assert.Equal("SqlServer", settings.Profiles["sqlserver"].Provider);
+        Assert.Equal(["Copy", "Copy", "Copy"], new[] { "sqlserver", "postgres", "postgres-english" }.Select(p => settings.Profiles[p].Searcher));
         Assert.Equal("parity_english_nostem", settings.Profiles["postgres"].TextSearchConfig);
         Assert.Equal("english", settings.Profiles["postgres-english"].TextSearchConfig);
         Assert.Equal(new[] { "postgres-english" }, settings.Parity.Informational);
@@ -77,13 +78,14 @@ public sealed class CliTests : IDisposable
     }
 
     [Fact]
-    public async Task GitStateIgnoresResultsMdButNotOtherSampleChanges()
+    public async Task GitStateIgnoresTheResultsReportsButNotOtherSampleChanges()
     {
         var repo = Path.Combine(_root, "repo");
         var sample = Path.Combine(repo, "sample");
         Directory.CreateDirectory(sample);
         File.WriteAllText(Path.Combine(sample, "appsettings.json"), "{}");
         File.WriteAllText(Path.Combine(sample, "RESULTS.md"), "old");
+        File.WriteAllText(Path.Combine(sample, "RESULTS-production.md"), "old");
         File.WriteAllText(Path.Combine(repo, "outside.txt"), "x");
         void Git(params string[] args)
         {
@@ -106,6 +108,7 @@ public sealed class CliTests : IDisposable
         Assert.False((await probe.GitStateAsync(sample, CancellationToken.None)).SampleDirty);
 
         File.WriteAllText(Path.Combine(sample, "RESULTS.md"), "regenerated");
+        File.WriteAllText(Path.Combine(sample, "RESULTS-production.md"), "regenerated");
         File.WriteAllText(Path.Combine(repo, "outside.txt"), "changed");
         Assert.False((await probe.GitStateAsync(sample, CancellationToken.None)).SampleDirty);
 

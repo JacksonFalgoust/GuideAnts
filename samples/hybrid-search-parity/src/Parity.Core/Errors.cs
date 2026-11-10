@@ -10,3 +10,6 @@ public sealed class DataFileException(string message, Exception? inner = null) :
 public sealed class EngineUnavailableException(string message, Exception? inner = null) : ParityException(message, inner);
 
 public sealed class NotSeededException(string message, Exception? inner = null) : ParityException(message, inner);
+
+/// <summary>A query option the profile's store can't run (for example the quirk-fixed variant on production's searchers).</summary>
+public sealed class UnsupportedQueryException(string message, Exception? inner = null) : ParityException(message, inner);

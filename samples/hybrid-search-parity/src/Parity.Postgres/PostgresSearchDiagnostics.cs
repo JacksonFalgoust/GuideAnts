@@ -16,8 +16,9 @@ public sealed class PostgresSearchDiagnostics : ISearchDiagnostics, IAsyncDispos
         LIMIT @k
         """;
 
+    // {query} is "@query", or "<normalizer>(@query)" when the indexed text and the query are normalized first.
     private const string TextMatchSql = """
-        WITH q AS (SELECT phraseto_tsquery(@cfg::regconfig, @query) AS tsq)
+        WITH q AS (SELECT phraseto_tsquery(@cfg::regconfig, {query}) AS tsq)
         SELECT dc."Id", CAST(ts_rank_cd(dc."ContentTsv", q.tsq, 32) AS float8)
         FROM "DocumentChunks" dc, q
         WHERE dc."ContentTsv" @@ q.tsq
@@ -25,7 +26,7 @@ public sealed class PostgresSearchDiagnostics : ISearchDiagnostics, IAsyncDispos
         """;
 
     private const string ScoreSql = """
-        WITH q AS (SELECT phraseto_tsquery(@cfg::regconfig, @query) AS tsq),
+        WITH q AS (SELECT phraseto_tsquery(@cfg::regconfig, {query}) AS tsq),
         all_matches AS (
             SELECT dc."Id", CAST(ts_rank_cd(dc."ContentTsv", q.tsq, 32) AS float8) AS r
             FROM "DocumentChunks" dc, q
@@ -57,7 +58,7 @@ public sealed class PostgresSearchDiagnostics : ISearchDiagnostics, IAsyncDispos
 
     private const string TokenizeSql = """
         SELECT token, array_to_string(lexemes, ' '), alias, (lexemes IS NOT NULL AND cardinality(lexemes) = 0)
-        FROM ts_debug(@cfg::regconfig, @text)
+        FROM ts_debug(@cfg::regconfig, {text})
         WHERE alias <> 'blank'
         """;
 
@@ -71,17 +72,37 @@ public sealed class PostgresSearchDiagnostics : ISearchDiagnostics, IAsyncDispos
 
     private readonly string _profile;
     private readonly string _config;
+    private readonly string? _normalizer;
     private readonly string _host;
     private readonly NpgsqlDataSource _dataSource;
+    private readonly string _textMatchSql;
+    private readonly string _scoreSql;
+    private readonly string _tokenizeSql;
 
-    public PostgresSearchDiagnostics(string profile, string connectionString, string textSearchConfig)
+    /// <param name="normalizer">
+    /// A SQL function applied to the query (and to tokenized text) before parsing, for a schema whose
+    /// <c>"ContentTsv"</c> is built from <c>normalizer("Content")</c>, as production's is
+    /// (<c>guideants_fts_normalize</c>). Null for the sample's own schema.
+    /// </param>
+    public PostgresSearchDiagnostics(string profile, string connectionString, string textSearchConfig, string? normalizer = null)
     {
         PostgresSchema.ValidateConfigName(textSearchConfig);
+        if (normalizer is not null)
+        {
+            PostgresSchema.ValidateFunctionName(normalizer);
+        }
+
         _profile = profile;
         _config = textSearchConfig;
+        _normalizer = normalizer;
         _host = PostgresErrors.Host(connectionString);
         _dataSource = PostgresDataSources.Build(connectionString);
+        _textMatchSql = TextMatchSql.Replace("{query}", Normalized("@query"));
+        _scoreSql = ScoreSql.Replace("{query}", Normalized("@query"));
+        _tokenizeSql = TokenizeSql.Replace("{text}", Normalized("@text"));
     }
+
+    private string Normalized(string parameter) => _normalizer is null ? parameter : $"{_normalizer}({parameter})";
 
     public Task<EngineResult<IReadOnlyList<VectorHit>>> VectorSearchAsync(float[] vector, Scope scope, int k, CancellationToken ct) =>
         QueryAsync(VectorSql, p =>
@@ -94,7 +115,7 @@ public sealed class PostgresSearchDiagnostics : ISearchDiagnostics, IAsyncDispos
     public Task<EngineResult<IReadOnlyList<TextMatch>>> TextMatchAsync(string text, Scope scope, CancellationToken ct) =>
         string.IsNullOrWhiteSpace(text)
             ? Task.FromResult(EngineResult<IReadOnlyList<TextMatch>>.Ok(Array.Empty<TextMatch>()))
-            : QueryAsync(TextMatchSql, p =>
+            : QueryAsync(_textMatchSql, p =>
             {
                 AddPhrase(p, text);
                 AddScope(p, scope);
@@ -107,7 +128,7 @@ public sealed class PostgresSearchDiagnostics : ISearchDiagnostics, IAsyncDispos
             return Task.FromResult(EngineResult<IReadOnlyList<ChunkScore>>.Ok(Array.Empty<ChunkScore>()));
         }
 
-        return QueryAsync(ScoreSql, p =>
+        return QueryAsync(_scoreSql, p =>
         {
             AddPhrase(p, query.Text);
             AddScope(p, query.Scope);
@@ -126,7 +147,7 @@ public sealed class PostgresSearchDiagnostics : ISearchDiagnostics, IAsyncDispos
     }
 
     public Task<EngineResult<IReadOnlyList<Token>>> TokenizeAsync(string text, CancellationToken ct) =>
-        QueryAsync(TokenizeSql, p =>
+        QueryAsync(_tokenizeSql, p =>
         {
             p.Add(new NpgsqlParameter("cfg", NpgsqlDbType.Text) { Value = _config });
             p.Add(new NpgsqlParameter("text", NpgsqlDbType.Text) { Value = text });
@@ -145,6 +166,11 @@ public sealed class PostgresSearchDiagnostics : ISearchDiagnostics, IAsyncDispos
             ["textSearchConfig"] = _config,
             ["rankFunction"] = "ts_rank_cd(…, 32)",
         };
+        if (_normalizer is not null)
+        {
+            details["textNormalizer"] = _normalizer;
+        }
+
         return new EngineInfo("Postgres", reader.GetString(0), details);
     }
 

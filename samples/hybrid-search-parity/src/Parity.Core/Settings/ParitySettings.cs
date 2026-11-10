@@ -21,6 +21,18 @@ public sealed class ProfileSettings
     public string Provider { get; set; } = string.Empty;
     public string ConnectionString { get; set; } = string.Empty;
     public string? TextSearchConfig { get; set; }
+
+    /// <summary>
+    /// <c>Copy</c> (the default): the sample's own stores, with production's SQL Server query copied verbatim and the
+    /// Postgres port. <c>Production</c>: GuideAnts' real searchers on a schema built by the real migrations.
+    /// </summary>
+    public string Searcher { get; set; } = SearcherKinds.Copy;
+}
+
+public static class SearcherKinds
+{
+    public const string Copy = "Copy";
+    public const string Production = "Production";
 }
 
 public sealed class HybridSettings

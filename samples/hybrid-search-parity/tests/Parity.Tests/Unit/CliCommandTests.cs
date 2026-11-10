@@ -104,6 +104,60 @@ public sealed class CliCommandTests : IDisposable
         Assert.Contains("full-text  UNREVIEWED", output.ToString());
     }
 
+    [Fact]
+    public async Task CompareTakesTheBaselineAndCandidateFromTheCommandLine()
+    {
+        var (app, output, _) = App();
+        await app.RunAsync(["seed", "--all"], CancellationToken.None);
+        var outPath = Path.Combine(_root, "RESULTS-production.md");
+
+        Assert.Equal(ExitCodes.Success, await app.RunAsync(["compare", "--baseline", "b", "--candidate", "a", "--out", outPath], CancellationToken.None));
+        var report = File.ReadAllText(outPath);
+        Assert.Contains("`b` (baseline) vs `a` (candidate)", report);
+        Assert.DoesNotContain("effective settings differ", report); // chosen on the command line, not a settings drift
+        Assert.Contains("Comparing b (baseline) with a (candidate)", output.ToString());
+    }
+
+    [Fact]
+    public async Task CompareRefusesTheSameProfileGivenTwiceOnTheCommandLine()
+    {
+        var (app, _, error) = App();
+        await app.RunAsync(["seed", "--all"], CancellationToken.None);
+        Assert.Equal(ExitCodes.ConfigurationOrData, await app.RunAsync(["compare", "--baseline", "b", "--candidate", "b"], CancellationToken.None));
+        Assert.Contains("both 'b'", error.ToString());
+    }
+
+    private sealed class NoQuirkVariant(InMemoryEngine inner) : ISearchStore
+    {
+        public Task PingServerAsync(CancellationToken ct) => inner.PingServerAsync(ct);
+
+        public Task EnsureSchemaAsync(CancellationToken ct) => inner.EnsureSchemaAsync(ct);
+
+        public Task LoadAsync(IReadOnlyList<ChunkRecord> chunks, DateTime createdUtc, CancellationToken ct) => inner.LoadAsync(chunks, createdUtc, ct);
+
+        public Task WaitUntilSearchableAsync(CancellationToken ct) => inner.WaitUntilSearchableAsync(ct);
+
+        public Task<EngineResult<IReadOnlyList<SearchHit>>> HybridSearchAsync(HybridQuery query, CancellationToken ct) =>
+            query.FilterBeforeTopN ? throw new UnsupportedQueryException("no quirk-fixed variant here") : inner.HybridSearchAsync(query, ct);
+    }
+
+    [Fact]
+    public async Task QuirkRunIsNotAvailableWhenAStoreHasNoQuirkVariantAndKeepsTheVerdict()
+    {
+        var engines = new Dictionary<string, InMemoryEngine>();
+        var output = new StringWriter();
+        var app = new CliApp(output, new StringWriter(), _root, embedderFactory: _ => null, engineFactory: (_, name) =>
+        {
+            var engine = engines.TryGetValue(name, out var existing) ? existing : engines[name] = new InMemoryEngine();
+            return new SearchEngine(name, "InMemory", new NoQuirkVariant(engine), engine);
+        }, probe: new FixedProbe(), includeLocalOverrides: false);
+        await app.RunAsync(["seed", "--all"], CancellationToken.None);
+        var outPath = Path.Combine(_root, "RESULTS.md");
+
+        Assert.Equal(ExitCodes.Success, await app.RunAsync(["compare", "--out", outPath], CancellationToken.None));
+        Assert.Contains("| Quirk fixed on both engines (not production) | not available: no quirk-fixed variant here |", File.ReadAllText(outPath));
+    }
+
     private sealed class PartialCoverage(InMemoryEngine inner) : ISearchDiagnostics
     {
         public Task<EngineResult<IReadOnlyList<VectorHit>>> VectorSearchAsync(float[] vector, Scope scope, int k, CancellationToken ct) => inner.VectorSearchAsync(vector, scope, k, ct);

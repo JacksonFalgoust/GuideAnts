@@ -3,7 +3,10 @@ using System.Diagnostics;
 
 namespace Parity.Cli;
 
-/// <summary>SampleDirty: any uncommitted change under the sample directory except RESULTS.md (which compare itself rewrites).</summary>
+/// <summary>
+/// SampleDirty: any uncommitted change under the sample directory except RESULTS.md and RESULTS-production.md (the
+/// reports compare itself rewrites).
+/// </summary>
 public sealed record GitState(string Commit, bool SampleDirty);
 
 public interface IEnvironmentProbe
@@ -22,7 +25,7 @@ public sealed class ProcessEnvironmentProbe(string dockerExecutable = "docker", 
         return ok && !string.IsNullOrWhiteSpace(output) ? output.Trim() : "unknown (docker image inspect failed)";
     }
 
-    internal static readonly string[] GitStatusArguments = ["status", "--porcelain", "--", ".", ":!RESULTS.md"];
+    internal static readonly string[] GitStatusArguments = ["status", "--porcelain", "--", ".", ":!RESULTS.md", ":!RESULTS-production.md"];
 
     public async Task<GitState> GitStateAsync(string sampleRoot, CancellationToken ct)
     {

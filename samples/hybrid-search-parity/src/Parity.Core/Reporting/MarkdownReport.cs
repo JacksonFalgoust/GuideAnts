@@ -21,7 +21,7 @@ public static class MarkdownReport
         sb.AppendLine();
         if (c.SampleDirty)
         {
-            sb.AppendLine("> **Warning:** the sample directory has uncommitted changes (other than RESULTS.md), so this run may not be reproducible from the commit below.").AppendLine();
+            sb.AppendLine("> **Warning:** the sample directory has uncommitted changes (other than RESULTS.md and RESULTS-production.md), so this run may not be reproducible from the commit below.").AppendLine();
         }
 
         if (c.SettingsDifferences.Count > 0)

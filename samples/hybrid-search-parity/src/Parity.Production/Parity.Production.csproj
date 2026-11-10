@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Runs GuideAnts' own searchers (HybridSearcher, PostgresHybridSearcher) against a database built by the real
+       migrations. BackgroundJobs grants this assembly InternalsVisibleTo (Properties/AssemblyInfo.cs). -->
+  <PropertyGroup>
+    <RootNamespace>Parity.Production</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Parity.Core/Parity.Core.csproj" />
+    <ProjectReference Include="../Parity.SqlServer/Parity.SqlServer.csproj" />
+    <ProjectReference Include="../Parity.Postgres/Parity.Postgres.csproj" />
+    <ProjectReference Include="../../../../src/server/GuideAntsApi.BackgroundJobs/GuideAntsApi.BackgroundJobs.csproj" />
+    <ProjectReference Include="../../../../src/server/GuideAntsApi.DataModel/GuideAntsApi.DataModel.csproj" />
+    <ProjectReference Include="../../../../src/server/GuideAntsApi.DataModel.Postgres/GuideAntsApi.DataModel.Postgres.csproj" />
+  </ItemGroup>
+</Project>

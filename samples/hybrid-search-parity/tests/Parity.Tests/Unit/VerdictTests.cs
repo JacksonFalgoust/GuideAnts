@@ -211,6 +211,29 @@ public sealed class VerdictTests : IDisposable
         Assert.Equal("0 unreviewed, 0 snapshot-changed, 0 blocker", Verdict.Evaluate([Pair()], new ThresholdSettings()).Conditions[1].Value);
     }
 
+    /// <summary>
+    /// One query can have a different, separately reviewed snapshot per candidate (Q33: the sample's port vs the
+    /// production searcher). An entry naming a candidate applies to that candidate's runs only; one without applies to all.
+    /// </summary>
+    [Fact]
+    public void EntriesNamingACandidateApplyOnlyToThatCandidate()
+    {
+        var entries = KnownDifferences.Load(WriteKnown($$"""
+            [ { "queryId": "Q33", "scope": "P2", "kind": "text-match", "candidateOnly": ["{{Id("a")}}"], "candidate": "postgres",
+                "category": "punctuation", "reason": "port", "decision": "blocker" },
+              { "queryId": "Q33", "scope": "P2", "kind": "text-match", "candidateOnly": ["{{Id("b")}}"], "candidate": "Prod-Postgres",
+                "category": "tokenization", "reason": "production", "decision": "acceptable" },
+              { "queryId": "Q19", "scope": "P2", "kind": "text-match", "candidateOnly": ["{{Id("c")}}"],
+                "category": "tokenization", "reason": "everyone", "decision": "acceptable" } ]
+            """));
+
+        var production = KnownDifferences.ForCandidate(entries, "prod-postgres");
+        Assert.Equal(["production", "everyone"], production.Select(e => e.Reason));
+        Assert.Equal(ReviewOutcome.Acceptable, KnownDifferences.ReviewText(production, "Q33", "P2", new TextDiff([], [Id("b")])).Outcome);
+        Assert.Equal(["port", "everyone"], KnownDifferences.ForCandidate(entries, "postgres").Select(e => e.Reason));
+        Assert.Equal(["everyone"], KnownDifferences.ForCandidate(entries, "other").Select(e => e.Reason));
+    }
+
     [Fact]
     public void StaleEntriesAreThoseWithNoMatchingDifference()
     {

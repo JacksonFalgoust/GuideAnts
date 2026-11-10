@@ -3,6 +3,10 @@ using Parity.Core.Data;
 
 namespace Parity.Core.Comparison;
 
+/// <param name="Candidate">
+/// The candidate profile whose runs this review belongs to, or null for every candidate. Needed when one query and scope
+/// has a different snapshot per candidate (Q33 differs between the sample's Postgres port and the production searcher).
+/// </param>
 public sealed record KnownDifference(
     string QueryId,
     string Scope,
@@ -15,7 +19,8 @@ public sealed record KnownDifference(
     string Reason,
     string Decision,
     string? ReviewedBy,
-    string? ReviewedOn);
+    string? ReviewedOn,
+    string? Candidate = null);
 
 public enum ReviewOutcome { Unreviewed, Acceptable, Blocker, SnapshotMismatch }
 
@@ -61,6 +66,10 @@ public static class KnownDifferences
 
         return entries;
     }
+
+    /// <summary>The entries that apply to a run against <paramref name="candidateProfile"/>, in file order.</summary>
+    public static IReadOnlyList<KnownDifference> ForCandidate(IReadOnlyList<KnownDifference> entries, string candidateProfile) =>
+        entries.Where(e => e.Candidate is null || string.Equals(e.Candidate, candidateProfile, StringComparison.OrdinalIgnoreCase)).ToList();
 
     public static ReviewStatus ReviewText(IReadOnlyList<KnownDifference> entries, string queryId, string scope, TextDiff diff)
     {
