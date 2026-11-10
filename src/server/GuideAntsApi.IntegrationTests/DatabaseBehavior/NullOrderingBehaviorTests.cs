@@ -143,6 +143,37 @@ public sealed class NullOrderingBehaviorTests
             .Should().Equal(approvedLater, approvedEarlier, notApproved);
     }
 
+    /// <summary>
+    /// Not a NULL case: the order of <c>Guid</c> keys (parity report #31, Accepted). SQL Server's
+    /// <c>uniqueidentifier</c> weighs the last group of the string form most; Postgres's <c>uuid</c> compares byte
+    /// by byte, the order of the string form. Two ids that differ in both the first byte and the last group come back
+    /// in opposite orders, which is why the app orders by a Guid only where any consistent order works.
+    /// </summary>
+    [TestMethod]
+    public async Task Guid_sort_order_differs_by_provider()
+    {
+        var middle = Guid.NewGuid().ToString("D")[2..24];
+        var lowFirstByte = Guid.Parse($"00{middle}ffffffffffff");
+        var highFirstByte = Guid.Parse($"ff{middle}000000000000");
+        await using (var seed = CreateContext())
+        {
+            foreach (var id in new[] { lowFirstByte, highFirstByte })
+            {
+                _userIds.Add(id);
+                seed.Users.Add(new User { Id = id, Name = $"Guid order {_token}", Email = $"guid-order.{id:N}@example.com" });
+            }
+
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = CreateContext();
+        var ordered = await db.Users.Where(u => _userIds.Contains(u.Id)).OrderBy(u => u.Id).Select(u => u.Id).ToListAsync();
+
+        ordered.Should().Equal(TestContainerManager.Instance.Provider == DatabaseProvider.SqlServer
+            ? [highFirstByte, lowFirstByte]
+            : [lowFirstByte, highFirstByte]);
+    }
+
     private ApplicationDbContext CreateContext() => new(_options);
 
     /// <summary>
