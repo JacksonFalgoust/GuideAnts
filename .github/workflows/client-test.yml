@@ -94,9 +94,11 @@ jobs:
         run: dotnet restore GuideAntsApi.IntegrationTests/GuideAntsApi.IntegrationTests.csproj
 
       # Known flaky tests (docs/postgres-parity-report.md rows 53 and 54): same
-      # race on both providers, pass on rerun. If the full run fails, we rerun
-      # ONLY the failed tests, and only when every failure is on the known list.
-      # Any other failure, or a known-flaky test failing again, fails the job.
+      # race on both providers, pass on rerun. If the full run fails, we retry
+      # ONLY when every non-passing result (any outcome except Passed/NotExecuted)
+      # is a known-flaky test and the TRX counters agree with that list. The retry
+      # uses exact Name= filters and must execute >= 1 test with all passing.
+      # Anything else fails the job. Logic and tests: .github/scripts/flaky_retry.py
       - name: Run API integration tests
         shell: bash
         env:
@@ -106,28 +108,24 @@ jobs:
           GA_ENABLE_RUNTIME_LOAD_TESTS: '0'
         run: |
           PROJ=GuideAntsApi.IntegrationTests/GuideAntsApi.IntegrationTests.csproj
-          KNOWN_FLAKY="SendMessageStream_Cancel_finalizes_partial_message_marks_turn_cancelled_and_prunes_incomplete_tool_calls SendMessageStream_Cancel_during_thinking RecoverStaleTurns_terminalizes_orphaned_streaming_turn_on_sql"
-          rm -rf "$RUNNER_TEMP/trx1"
+          SCRIPT="$GITHUB_WORKSPACE/.github/scripts/flaky_retry.py"
+          KNOWN_FLAKY=(
+            SendMessageStream_Cancel_finalizes_partial_message_marks_turn_cancelled_and_prunes_incomplete_tool_calls
+            SendMessageStream_Cancel_during_thinking
+            RecoverStaleTurns_terminalizes_orphaned_streaming_turn_on_sql
+          )
+          rm -rf "$RUNNER_TEMP/trx1" "$RUNNER_TEMP/trx2"
           if dotnet test "$PROJ" --configuration Release --verbosity minimal \
                --logger "trx;LogFileName=run1.trx" --results-directory "$RUNNER_TEMP/trx1"; then
             exit 0
           fi
-          # shellcheck disable=SC2086
-          FAILED=$(python3 - "$RUNNER_TEMP/trx1" $KNOWN_FLAKY <<'PY'
-          import sys, glob, xml.etree.ElementTree as ET
-          d, known = sys.argv[1], sys.argv[2:]
-          failed = set()
-          for f in glob.glob(d + "/*.trx"):
-              for r in ET.parse(f).getroot().iter():
-                  if r.tag.endswith("UnitTestResult") and r.get("outcome") == "Failed":
-                      failed.add(r.get("testName"))
-          if not failed or any(not any(n.startswith(k) for k in known) for n in failed):
-              sys.exit(1)
-          print("|".join("FullyQualifiedName~" + n.split("(")[0] for n in sorted(failed)))
-          PY
-          ) || { echo "::error::Failures include tests not on the known-flaky list (or no failures could be read); not retrying."; exit 1; }
-          echo "::warning::Retrying known-flaky tests once (parity report rows 53/54): $FAILED"
-          dotnet test "$PROJ" --configuration Release --verbosity minimal --no-build --filter "$FAILED"
+          FILTER=$(python3 "$SCRIPT" classify "$RUNNER_TEMP/trx1" "${KNOWN_FLAKY[@]}") \
+            || { echo "::error::Failure is not solely known-flaky tests; not retrying."; exit 1; }
+          echo "::warning::Retrying known-flaky tests once (parity report rows 53/54): $FILTER"
+          dotnet test "$PROJ" --configuration Release --verbosity minimal --no-build --filter "$FILTER" \
+            --logger "trx;LogFileName=run2.trx" --results-directory "$RUNNER_TEMP/trx2" || true
+          python3 "$SCRIPT" verify "$RUNNER_TEMP/trx2" \
+            || { echo "::error::Known-flaky retry did not pass cleanly."; exit 1; }
 
   database-parity:
     runs-on: ubuntu-latest
@@ -153,13 +151,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Restore
-        run: dotnet restore GuideAntsApi.sln
-
       - name: Run database parity tests
         env:
           GA_INTEGRATION_TEST_MSSQL_IMAGE: ghcr.io/${{ env.OWNER_LC }}/mssql2025-express-fts:latest
         run: dotnet test GuideAntsApi.DatabaseParity.Tests/GuideAntsApi.DatabaseParity.Tests.csproj --configuration Release --verbosity minimal
+
+  migrations-in-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: src/server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
 
       # has-pending-model-changes exits non-zero when the model differs from the
       # latest migration snapshot, so either provider drifting fails the job.
