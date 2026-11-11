@@ -27,7 +27,7 @@ services:
       retries: 30
       start_period: 30s
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     cpus: "4.0"
     volumes:
       # Postgres 18+ images keep PGDATA at /var/lib/postgresql/18/docker and declare the

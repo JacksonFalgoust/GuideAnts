@@ -361,7 +361,7 @@ For local debugging with API on the host and services in Docker, use `docker/.en
 |---|---|
 | `5107` | `guideants-webapi-ui` (UI + API) |
 | `1434` | `mssql-express` (host) → `1433` (container) |
-| `5433` | `postgres` (host) → `5432` (container), only with `docker-compose.postgres.yml` |
+| `5433` | `postgres` (host) → `5432` (container), only with `docker-compose.postgres.yml` (loopback-only) |
 | `8110` | `guideants-ai` (full variants: llama-cpp, ASR, TTS, SD, EMB, media, sandbox via nginx; slim variant: sandbox/media only) |
 | `5001` | `docling-serve` |
 | `8082` | `documentserver` (loopback-only) |
