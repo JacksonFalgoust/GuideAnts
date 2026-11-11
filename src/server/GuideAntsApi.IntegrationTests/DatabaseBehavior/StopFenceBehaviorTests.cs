@@ -18,12 +18,17 @@ namespace GuideAntsApi.IntegrationTests.DatabaseBehavior;
 /// transaction, fenced on the turn's <c>Status</c> and <c>ExecutionId</c>. The fence reads the turn's streaming rows,
 /// clears their <c>IsStreaming</c>, then updates the turn. Under row versioning the reads don't wait for the worker:
 /// only the fence's update of the turn waits for the worker's row lock, so a row the worker commits meanwhile was missed
-/// and stayed streaming. That is Postgres (MVCC), and also SQL Server with <c>READ_COMMITTED_SNAPSHOT</c> on, which the
-/// suite's SQL Server database has (<c>is_read_committed_snapshot_on = 1</c>, the image's default): there the test
-/// failed the same way, the fence waiting with <c>LCK_M_U</c> on the turn row in its <c>SaveChanges</c>. The fix is on
-/// the Postgres path only (SQL Server's statements are unchanged), so the test is Postgres-only. With locking
-/// <c>READ COMMITTED</c> (snapshot off) SQL Server's fence would wait at its first read of the turn instead and see the
-/// row (reasoned, not run). Runs the real fence against the suite's database (no web host).
+/// and stayed streaming. That is Postgres (MVCC), and also SQL Server with <c>READ_COMMITTED_SNAPSHOT</c> on.
+/// The suite's SQL Server database has it on (<c>is_read_committed_snapshot_on = 1</c>) because EF Core created that
+/// database: when EF creates a database (<c>Migrate</c>, <c>EnsureCreated</c>) it also sends
+/// <c>IF SERVERPROPERTY('EngineEdition') &lt;&gt; 5 ... ALTER DATABASE ... SET READ_COMMITTED_SNAPSHOT ON</c>, so on
+/// every edition but Azure SQL Database, which has it on by default anyway. There the test failed the same way, the
+/// fence waiting with <c>LCK_M_U</c> on the turn row in its <c>SaveChanges</c>. A database created by the app's own
+/// <c>SqlServerDatabaseInitializer</c> (a plain <c>CREATE DATABASE</c>, then <c>RECOVERY SIMPLE</c>) has it off. With
+/// it off, the fence's first read of the turn waits for the worker's uncommitted touch and sees the row, so the race is
+/// narrower but not closed: a worker write that falls entirely between that read and the fence's turn update could
+/// still escape (reasoned, not run). The fix is on the Postgres path only (SQL Server's statements are unchanged), so
+/// the test is Postgres-only. Runs the real fence against the suite's database (no web host).
 /// </summary>
 [TestClass]
 public sealed class StopFenceBehaviorTests

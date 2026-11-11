@@ -4,6 +4,7 @@ using GuideAntsApi.DataModel.Database;
 namespace GuideAntsApi.Tests.DataModel;
 
 [TestClass]
+[DoNotParallelize] // FromEnvironment_falls_through_empty_colon_key_to_double_underscore_key sets process environment variables
 public sealed class DatabaseProviderSettingsTests
 {
     [TestMethod]
