@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Times the same GuideAnts server operations on SQL Server and on Postgres, through the server's own services
+       (see README.md). Testcontainers starts one container per database with the same resource limits. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>DatabaseSpeed</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Testcontainers.MsSql" Version="4.9.0" />
+    <PackageReference Include="Testcontainers.PostgreSql" Version="4.9.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../../src/server/GuideAntsApi/GuideAntsApi.csproj" />
+    <ProjectReference Include="../../../../src/server/GuideAntsApi.BackgroundJobs/GuideAntsApi.BackgroundJobs.csproj" />
+    <ProjectReference Include="../../../../src/server/GuideAntsApi.DataModel/GuideAntsApi.DataModel.csproj" />
+    <ProjectReference Include="../../../../src/server/GuideAntsApi.DataModel.Postgres/GuideAntsApi.DataModel.Postgres.csproj" />
+  </ItemGroup>
+</Project>

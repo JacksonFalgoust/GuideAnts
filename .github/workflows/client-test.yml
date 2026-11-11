@@ -16,6 +16,8 @@ on:
       - 'src/server/**'
       - '.github/workflows/client-test.yml'
       - '.github/scripts/**'
+  # Manual runs; only the database-speed job is limited to them.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -191,3 +193,49 @@ jobs:
           --project GuideAntsApi.DataModel.Postgres/GuideAntsApi.DataModel.Postgres.csproj
           --startup-project GuideAntsApi/GuideAntsApi.csproj
           -- --provider Postgres
+
+  # Speed comparison of SQL Server and Postgres (samples/database-speed). Manual only
+  # (Actions > "Client and Server tests" > Run workflow). ubuntu-latest is x86-64, so the
+  # amd64-only SQL Server image runs natively; the harness refuses a full run elsewhere.
+  # RESULTS.md is uploaded as an artifact; commit it to samples/database-speed/ by hand.
+  database-speed:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    defaults:
+      run:
+        # Inside the sample so its global.json picks the SDK.
+        working-directory: samples/database-speed
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Normalize image owner
+        shell: bash
+        run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Harness unit tests
+        run: dotnet test DatabaseSpeed.sln --configuration Release --verbosity minimal
+
+      - name: Run the speed comparison (full)
+        env:
+          GA_SPEED_MSSQL_IMAGE: ghcr.io/${{ env.OWNER_LC }}/mssql2025-express-fts:latest
+          GA_SPEED_POSTGRES_IMAGE: pgvector/pgvector:0.8.7-pg18
+        run: dotnet run --configuration Release --no-build --project src/DatabaseSpeed/DatabaseSpeed.csproj
+
+      - name: Upload RESULTS.md
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: database-speed-results
+          path: samples/database-speed/RESULTS.md
+          if-no-files-found: error

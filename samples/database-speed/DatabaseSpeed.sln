@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{481E7BF3-BC7B-4404-BC97-3953999D7021}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DatabaseSpeed", "src\DatabaseSpeed\DatabaseSpeed.csproj", "{63D952A2-D5E6-416E-A4CA-E33F17F6DD8B}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{02022FDD-18EF-4B2A-A269-E94B2B58BF77}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DatabaseSpeed.Tests", "tests\DatabaseSpeed.Tests\DatabaseSpeed.Tests.csproj", "{AABAC9BA-2D78-4EF5-8874-18D2A56B4E71}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{63D952A2-D5E6-416E-A4CA-E33F17F6DD8B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{63D952A2-D5E6-416E-A4CA-E33F17F6DD8B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{63D952A2-D5E6-416E-A4CA-E33F17F6DD8B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{63D952A2-D5E6-416E-A4CA-E33F17F6DD8B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AABAC9BA-2D78-4EF5-8874-18D2A56B4E71}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AABAC9BA-2D78-4EF5-8874-18D2A56B4E71}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AABAC9BA-2D78-4EF5-8874-18D2A56B4E71}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AABAC9BA-2D78-4EF5-8874-18D2A56B4E71}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{63D952A2-D5E6-416E-A4CA-E33F17F6DD8B} = {481E7BF3-BC7B-4404-BC97-3953999D7021}
+		{AABAC9BA-2D78-4EF5-8874-18D2A56B4E71} = {02022FDD-18EF-4B2A-A269-E94B2B58BF77}
+	EndGlobalSection
+EndGlobal

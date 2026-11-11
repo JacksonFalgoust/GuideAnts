@@ -402,9 +402,65 @@ _To be filled in (Task 18)._ At minimum:
 
 ## Speed
 
-_To be filled in (Task 17)._
+**Numbers pending.** They come from the first x86-64 CI run. After the branch is pushed, run the `database-speed` job of
+`.github/workflows/client-test.yml` by hand (Actions > "Client and Server tests" > Run workflow). It runs only on
+`workflow_dispatch`. Download the `database-speed-results` artifact into `samples/database-speed/RESULTS.md` and
+summarize it here. No local numbers are reported: this branch was built on Apple Silicon, where SQL Server's amd64-only
+image runs emulated. A full run there exits 2 by design.
 
-To measure (carried from Task 12): the Postgres full-text candidates are ranked before `LIMIT`, so `ts_rank_cd` runs for
-every table-wide match, across all projects (a GIN index can't return rows in rank order). For a common term on a large
-multi-project `DocumentChunks` table this costs O(matches). SQL Server's `CONTAINSTABLE` `top_n_by_rank` has the same
-table-wide shape.
+**The harness:** `samples/database-speed` ([README](../samples/database-speed/README.md)) is a console app.
+- **Setup:**
+  - Testcontainers starts one SQL Server container (`mssql2025-express-fts`, `MSSQL_PID=Developer` as in the compose
+    stacks) and one Postgres container (`pgvector/pgvector:0.8.7-pg18`, the image's default settings).
+  - Both get the same limits, 4 CPUs and 8 GB, read back with `docker inspect`.
+  - Testcontainers' default `fsync=off` / `synchronous_commit=off` on Postgres is removed, and the run checks it.
+- **The real code paths:**
+  - Each database is created by the host's own initializer.
+  - Each provider gets the host's registrations: the scoped context with `EfQueryWarningInterceptor`, the pooled
+    factory, `AddBackgroundJobs` (so `HybridSearcher` on SQL Server and `PostgresHybridSearcher` on Postgres), and the
+    real services.
+- **The seed:** the same deterministic seed goes into both databases: 50 projects × 10 notebooks × 20 conversations ×
+  50 messages, 10,000 usage events, and the demo corpus replicated to 20,000 chunks with its saved embeddings.
+- **The runs:** each operation does 20 warm-up runs and 200 measured runs, interleaved across the two databases, with
+  the order alternating. The cold start does 1 + 10.
+- **The report:** per operation, the runs, median, nearest-rank p95, the Postgres / SQL Server median ratio, and a flag
+  above 1.2. There's no pass/fail threshold.
+- **The header:** hardware, image digests, container limits, server settings, row counts read back from both
+  databases, and the commit, with a warning if `src/server` or the harness had uncommitted changes.
+
+**What it times** (every call is the production service unless noted):
+- four hybrid searches: a typical phrase (Q01), a common phrase (Q37), a very common word (`model`) and a rare phrase
+  (Q22);
+- loading a 200-message conversation (`ConversationQueryService`);
+- saving one chat turn (`ConversationPersistence`: create turn, user message, streaming assistant message,
+  checkpoint, finalize, terminalize);
+- listing projects, a project's notebooks (`ProjectService`) and a notebook's conversations;
+- the 30-day usage summary (`UsageQueryService`);
+- listing models and tools (`CatalogService`);
+- a path-prefix lookup on notebook files. This one is the LINQ of `NotebookFileService`'s folder delete, run directly,
+  because the method also deletes files on disk;
+- 8 workers draining 1,000 jobs (`JobQueueService`), measured as drain time, per-claim latency and empty claims;
+- a cold start: the initializer on an empty database plus the first query.
+
+**Smoke run:** `--smoke` (tiny data, 3 + 10 runs, output `RESULTS-smoke.md` labelled NOT VALID FOR COMPARISON,
+git-ignored) ran every operation end to end on both providers on Apple Silicon. Its row counts and results matched on
+both. Its numbers are not evidence.
+
+**Things to watch in the first real run** (carried over from earlier reviews; RESULTS.md points at the rows):
+- **`LIKE 'prefix%'` under the nondeterministic `guideants_ci` collation** can't range-scan a B-tree on Postgres, while
+  SQL Server can seek `IX_NotebookFiles_RelativePath_NotebookId` (Task 7). See the path-prefix row and its actual
+  plans. The production queries also filter by notebook or project, so the cost should follow files per notebook.
+- **Indexes on nullable sort columns.** `IX_GuideMembers_GuideId_DisplayOrder`, `IX_Models_IsActive_DisplayOrder` and
+  `IX_Tools_Category_IsActive_DisplayOrder` can't serve the SQL Server `NULLS FIRST` order on Postgres (#30, Task 8).
+  See the models and tools rows and plans: 40 models the harness seeds, since the migrations seed none, and the
+  migrations' 12 tools. `GuideMembers` isn't timed. The fix, if the numbers say it matters:
+  `HasNullSortOrder(NullsFirst)` in `PostgresModelAdapter`, plus a Postgres migration.
+- **`ts_rank_cd` before `LIMIT`** (Task 12). Postgres ranks every table-wide full-text match, across all projects,
+  before it takes the candidates; a GIN index can't return rows in rank order. For a common term on a large
+  multi-project `DocumentChunks` table that is O(matches). SQL Server's `CONTAINSTABLE` `top_n_by_rank` has the same
+  table-wide shape. Compare the rare, typical, common and very common search rows; each lists its table-wide match
+  count per provider.
+- **The Postgres job claim runs without `SKIP LOCKED`, by design** (#21, Task 10). A contended claimer waits, then gets
+  no job, as on SQL Server. See the throughput and the empty claims per drain.
+- **Postgres runs with stock memory settings** (`shared_buffers` 128 MB, as `docker-compose.postgres.yml` ships it).
+  SQL Server sizes its buffer pool from the container's memory instead.

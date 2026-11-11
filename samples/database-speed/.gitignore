@@ -1,0 +1,3 @@
+# A --smoke run (Apple Silicon, emulated SQL Server, tiny data) is never a valid comparison; don't commit it.
+RESULTS-smoke.md
+TestResults/
