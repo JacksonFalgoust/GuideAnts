@@ -117,10 +117,6 @@ public static class Program
 
     private static async Task RunAsync(CliOptions options, bool sqlServerEmulated, string? dockerArchitecture, CancellationToken ct)
     {
-        // SqlServerDatabaseInitializer reads the provider from these; the harness chooses providers itself.
-        Environment.SetEnvironmentVariable("Database:Provider", null);
-        Environment.SetEnvironmentVariable("Database__Provider", null);
-
         CommandFailures.Start();
         var plan = RunPlan.For(options.Smoke);
         var sampleRoot = FindUp(AppContext.BaseDirectory, dir => File.Exists(Path.Combine(dir, "DatabaseSpeed.sln")))

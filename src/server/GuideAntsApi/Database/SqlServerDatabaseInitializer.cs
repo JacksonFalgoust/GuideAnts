@@ -85,11 +85,19 @@ public static class SqlServerDatabaseInitializer
 
         logger.LogInformation("SQL Server catalog '{Catalog}' is ready; applying EF Core migrations.", catalog);
 
-        var optionsBuilder = new DbContextOptionsBuilder<ApplicationDbContext>();
-        ApplicationDbContextOptions.Configure(optionsBuilder, DatabaseProviderSettings.FromEnvironment(), connectionString, new DbProviderTuning(60, true, true));
-
-        using var context = new ApplicationDbContext(optionsBuilder.Options);
+        using var context = new ApplicationDbContext(CreateMigrationOptions(connectionString));
         context.Database.Migrate();
+    }
+
+    /// <summary>
+    /// The options of the context that applies the migrations: always SQL Server, whatever <c>Database:Provider</c> the
+    /// process environment holds. This runs before Program copies configuration into the environment.
+    /// </summary>
+    internal static DbContextOptions<ApplicationDbContext> CreateMigrationOptions(string connectionString)
+    {
+        var optionsBuilder = new DbContextOptionsBuilder<ApplicationDbContext>();
+        ApplicationDbContextOptions.Configure(optionsBuilder, DatabaseProvider.SqlServer, connectionString, new DbProviderTuning(60, true, true));
+        return optionsBuilder.Options;
     }
 
     /// <summary>
