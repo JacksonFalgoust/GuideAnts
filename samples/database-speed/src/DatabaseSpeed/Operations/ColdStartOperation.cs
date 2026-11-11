@@ -63,11 +63,14 @@ public sealed class ColdStartOperation(string storagePath) : IOperation
         await using (var scope = services.CreateAsyncScope())
         {
             projects = (await scope.ServiceProvider.GetRequiredService<IProjectService>().GetProjectsAsync()).Count();
-            stopwatch.Stop();
-            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-            _migrations[target.Provider] = (await db.Database.GetAppliedMigrationsAsync(ct)).Count();
         }
 
+        stopwatch.Stop();
+
+        // Not timed. The migration count comes from a separate context after the stopwatch has stopped, so the timed
+        // region (initializer, service container, first query, and disposing the scope and container) does exactly the
+        // work it did before the count was added; reading it inside the scope would have meant stopping the clock earlier.
+        _migrations[target.Provider] = await AppliedMigrationsAsync(target.Provider, connectionString, ct);
         await DropAsync(target, database, connectionString, ct);
         if (projects != 0)
         {
@@ -75,6 +78,14 @@ public sealed class ColdStartOperation(string storagePath) : IOperation
         }
 
         measurement.Add(Name, Measurement.Ms(stopwatch));
+    }
+
+    private static async Task<int> AppliedMigrationsAsync(DatabaseProvider provider, string connectionString, CancellationToken ct)
+    {
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>();
+        ApplicationDbContextOptions.Configure(options, provider, connectionString, new DbProviderTuning(60, UseVectorSearch: true, ExplicitSingleQuery: true));
+        await using var db = new ApplicationDbContext(options.Options);
+        return (await db.Database.GetAppliedMigrationsAsync(ct)).Count();
     }
 
     private static async Task DropAsync(ProviderTarget target, string database, string connectionString, CancellationToken ct)
