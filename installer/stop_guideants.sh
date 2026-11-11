@@ -55,7 +55,8 @@ if [[ "$AI_BACKEND" == "rocm" ]]; then
 fi
 
 installer_compose_env_args
-[[ "$DB_PROVIDER" == "postgres" ]] && log "Database: Postgres"
-log "Stopping GuideAnts (DB=$DB_LAYOUT, AI=$AI_BACKEND)..."
+DB_LABEL="$DB_LAYOUT"
+[[ "$DB_PROVIDER" == "postgres" ]] && DB_LABEL="postgres" && log "Database: Postgres"
+log "Stopping GuideAnts (DB=$DB_LABEL, AI=$AI_BACKEND)..."
 docker compose "${COMPOSE_ARGS[@]}" "${COMPOSE_ENV_ARGS[@]}" down
 log "GuideAnts stopped."

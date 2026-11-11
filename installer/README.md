@@ -115,7 +115,13 @@ After first install, `DB_LAYOUT` is fixed and is not prompted or changed on reru
 `guideants-postgres` container (`pgvector/pgvector:0.8.7-pg18`, volume `postgres_data`). The layout prompt is
 skipped. The choice is saved as `DB_PROVIDER` in `.installer_state.env`, so later runs and the stop scripts use it;
 pass `--db sqlserver` to go back. Each provider has its own database, so switching starts on an empty one and
-nothing is migrated. Optional env: `GA_POSTGRES_IMAGE`, `GA_POSTGRES_PASSWORD`.
+nothing is migrated. Optional env: `GA_POSTGRES_IMAGE`, `GA_POSTGRES_PASSWORD`. The password goes into the
+connection string unquoted, so it must not contain `;`, `=` or quotes.
+
+To switch, stop the current stack first (`./stop_guideants.sh` or `stop_guideants.cmd`), then run
+`./guideants.sh --db postgres`. To go back, stop again and run `./guideants.sh --db sqlserver`. The SQL Server
+volumes (`mssql_*`, or `guideants_slim_runtime_state` for the bundled layout) and `postgres_data` are left as they
+are, so the other provider's data is still there when you switch back.
 
 ### AI backend
 

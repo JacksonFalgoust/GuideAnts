@@ -107,8 +107,9 @@ function Invoke-Main {
         -DbProviderOverride $script:DbProviderOverride
 
     $selection = $built.Selection
-    if ($selection.DbProvider -eq 'postgres') { Write-Log 'Database: Postgres' }
-    Write-Log "Stopping GuideAnts (DB=$($selection.DbLayout), AI=$($selection.AiBackend))..."
+    $dbLabel = $selection.DbLayout
+    if ($selection.DbProvider -eq 'postgres') { $dbLabel = 'postgres'; Write-Log 'Database: Postgres' }
+    Write-Log "Stopping GuideAnts (DB=$dbLabel, AI=$($selection.AiBackend))..."
 
     if ($selection.AiBackend -eq 'rocm') {
         $helper = Join-Path $script:ScriptDir 'rocm-runtime-compose.ps1'
