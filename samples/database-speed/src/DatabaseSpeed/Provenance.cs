@@ -89,11 +89,12 @@ public static class Provenance
         return lines;
     }
 
-    public static async Task<IReadOnlyList<string>> ImageLinesAsync(DatabaseServer server, CancellationToken ct)
+    /// <param name="dockerArchitecture">The Docker daemon's architecture (<c>x86_64</c>, <c>aarch64</c>); an image of another one runs emulated.</param>
+    public static async Task<IReadOnlyList<string>> ImageLinesAsync(DatabaseServer server, string? dockerArchitecture, CancellationToken ct)
     {
         var inspect = (await RunAsync("docker", ["image", "inspect", "--format", "{{json .RepoDigests}}|{{.Architecture}}|{{.Id}}", server.Image], null, ct)).Trim().Split('|');
-        var host = RuntimeInformation.OSArchitecture == Architecture.X64 ? "amd64" : RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant();
-        var emulated = inspect.Length == 3 && inspect[1] != host ? $" (**{inspect[1]} image on a {host} host: emulated**)" : string.Empty;
+        var daemon = HostGuard.IsX86_64(dockerArchitecture) ? "amd64" : dockerArchitecture is "aarch64" or "arm64" ? "arm64" : dockerArchitecture ?? "unknown";
+        var emulated = inspect.Length == 3 && inspect[1] != daemon ? $" (**{inspect[1]} image on the {dockerArchitecture ?? "unknown"} Docker daemon: emulated**)" : string.Empty;
         return inspect.Length == 3
             ? [$"- {Report.ProviderName(server.Provider)}: `{server.Image}`, digest {inspect[0]}, image id `{inspect[2]}`, {inspect[1]}{emulated}"]
             : [$"- {Report.ProviderName(server.Provider)}: `{server.Image}` (docker image inspect failed)"];
@@ -131,11 +132,21 @@ public static class Provenance
                        CAST((SELECT cpu_count FROM sys.dm_os_sys_info) AS nvarchar(16)),
                        CAST((SELECT physical_memory_kb / 1024 FROM sys.dm_os_sys_info) AS nvarchar(32)),
                        CAST((SELECT is_read_committed_snapshot_on FROM sys.databases WHERE name = DB_NAME()) AS nvarchar(8)),
-                       CAST((SELECT recovery_model_desc FROM sys.databases WHERE name = DB_NAME()) AS nvarchar(32))
+                       CAST((SELECT recovery_model_desc FROM sys.databases WHERE name = DB_NAME()) AS nvarchar(32)),
+                       CAST((SELECT committed_target_kb / 1024 FROM sys.dm_os_sys_info) AS nvarchar(32))
                 """, ct);
+            // SQL Server on Linux reads the container's memory limit (and by default uses 80% of it). If it saw more than
+            // the limit, it could size its buffer pool past the cap, which would make it slower or get it killed.
+            var limitMb = RunPlan.ContainerMemoryBytes / (1024 * 1024);
+            var seenMb = ParseLong(row[4]);
+            var targetMb = ParseLong(row[7]);
+            var memory = seenMb > 0 && seenMb <= limitMb && targetMb <= limitMb
+                ? $"- SQL Server honours the memory limit: it sees {seenMb:N0} MB of the {limitMb:N0} MB cap (on Linux it uses 80% of the limit by default), memory target {targetMb:N0} MB"
+                : $"- **Warning: SQL Server sees {seenMb:N0} MB with a memory target of {targetMb:N0} MB, against the {limitMb:N0} MB container limit; it may not be honouring the limit.**";
             return
             [
-                $"- SQL Server {row[0]}, {row[1]}; sees {row[3]} CPUs and {row[4]} MB; max server memory {row[2]} MB",
+                $"- SQL Server {row[0]}, {row[1]}; sees {row[3]} CPUs; max server memory {row[2]} MB",
+                memory,
                 $"- Seeded database: READ_COMMITTED_SNAPSHOT {(row[5] == "1" ? "ON" : "OFF")}, recovery {row[6]} (as the initializer created it)",
             ];
         }

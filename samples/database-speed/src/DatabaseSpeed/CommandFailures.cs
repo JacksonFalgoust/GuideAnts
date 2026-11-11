@@ -10,10 +10,11 @@ namespace DatabaseSpeed;
 
 /// <summary>
 /// Every database command that failed, by provider and error code, read from EF's <see cref="DiagnosticListener"/>
-/// (so the host-like registrations stay unchanged). A failed command isn't necessarily a failed operation: the
-/// retrying execution strategy retries transient errors such as SQL Server deadlock victims (1205), and
-/// <c>JobQueueService.TryClaimAsync</c> turns the rest into "no job". RESULTS.md reports these per operation, because
-/// their cost (detection, retry delay) is inside the measured time.
+/// (so the host-like registrations stay unchanged). A failed command isn't necessarily a failed operation: EF's
+/// retrying execution strategy retries the errors it considers transient, <c>JobQueueService.TryClaimAsync</c> catches
+/// provider errors such as SQL Server deadlock victims (1205) and returns "no job", and EF's own migrator expects some
+/// failures on an empty database. RESULTS.md reports these per operation, because their cost (deadlock detection,
+/// retry delay) is inside the measured time.
 /// </summary>
 public static class CommandFailures
 {
@@ -45,7 +46,7 @@ public static class CommandFailures
                     Counts.AddOrUpdate((DatabaseProvider.SqlServer, $"SqlException {sql.Number}{Describe(sql.Number)}"), 1, (_, n) => n + 1);
                     return;
                 case PostgresException pg:
-                    Counts.AddOrUpdate((DatabaseProvider.Postgres, $"PostgresException {pg.SqlState}"), 1, (_, n) => n + 1);
+                    Counts.AddOrUpdate((DatabaseProvider.Postgres, $"PostgresException {pg.SqlState}: {pg.MessageText}{Explain(pg)}"), 1, (_, n) => n + 1);
                     return;
                 case NpgsqlException npgsql:
                     Counts.AddOrUpdate((DatabaseProvider.Postgres, $"NpgsqlException: {npgsql.Message}"), 1, (_, n) => n + 1);
@@ -58,6 +59,12 @@ public static class CommandFailures
             : DatabaseProvider.SqlServer;
         Counts.AddOrUpdate((provider, exception.GetType().Name), 1, (_, n) => n + 1);
     }
+
+    /// <summary>Failures that are part of normal operation, explained so a reader doesn't take them for a problem.</summary>
+    private static string Explain(PostgresException error) =>
+        error.SqlState == PostgresErrorCodes.UndefinedTable && error.MessageText.Contains("__EFMigrationsHistory", StringComparison.Ordinal)
+            ? " (expected: EF's migrator reads its history table before creating it on an empty database, and handles the error)"
+            : string.Empty;
 
     private static string Describe(int number) => number switch
     {

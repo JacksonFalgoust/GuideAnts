@@ -51,25 +51,78 @@ public class ReportTests
     }
 
     [TestMethod]
-    public void Rendered_tables_show_runs_median_p95_and_ratio_per_provider()
+    public void Rendered_tables_show_runs_median_p95_delta_and_ratio_per_provider()
     {
         var markdown = Report.Render(Run(smoke: false,
             Operation("load", Metric("load", Constant(200, 10.0), Constant(200, 12.1)))));
 
-        markdown.Should().Contain("| Provider | Runs | Median ms | p95 ms | Postgres / SQL Server (median) | Flag |");
+        markdown.Should().Contain("| Operation | SQL Server median ms | Postgres median ms | Postgres - SQL Server (ms) | Postgres / SQL Server | Flag |");
+        markdown.Should().Contain("| load | 10.00 | 12.10 | +2.10 | 1.21 | " + Report.FlagText + " |");
+        markdown.Should().Contain("| Provider | Runs | Median ms | p95 ms | Postgres - SQL Server (median ms) | Postgres / SQL Server (median) | Flag |");
         markdown.Should().Contain("| SQL Server | 200 | 10.00 | 10.00 |");
-        markdown.Should().Contain("| Postgres | 200 | 12.10 | 12.10 | 1.21 | " + Report.FlagText + " |");
+        markdown.Should().Contain("| Postgres | 200 | 12.10 | 12.10 | +2.10 | 1.21 | " + Report.FlagText + " |");
     }
 
     [TestMethod]
-    public void Smoke_report_carries_the_not_valid_banner_and_a_full_report_does_not()
+    public void A_faster_Postgres_shows_a_negative_delta()
     {
-        var smoke = Report.Render(Run(smoke: true, Operation("op", Metric("op", Constant(10, 1.0), Constant(10, 1.0)))));
+        var markdown = Report.Render(Run(smoke: false, Operation("fast", Metric("fast", Constant(5, 0.50), Constant(5, 0.38)))));
+
+        markdown.Should().Contain("| fast | 0.50 | 0.38 | -0.12 | 0.76 |  |");
+    }
+
+    [TestMethod]
+    public void Smoke_report_on_an_x86_daemon_does_not_claim_emulation()
+    {
+        var emulated = Report.Render(Run(smoke: true, emulated: true, Operation("op", Metric("op", Constant(10, 1.0), Constant(10, 1.0)))));
+        var native = Report.Render(Run(smoke: true, emulated: false, Operation("op", Metric("op", Constant(10, 1.0), Constant(10, 1.0)))));
         var full = Report.Render(Run(smoke: false, Operation("op", Metric("op", Constant(10, 1.0), Constant(10, 1.0)))));
 
-        smoke.Should().StartWith("> **" + Report.SmokeBanner + "**");
-        smoke.Split('\n').Count(l => l.Contains(Report.SmokeBanner)).Should().BeGreaterThan(1, "the banner repeats at the end too");
-        full.Should().NotContain(Report.SmokeBanner);
+        Report.SmokeBanner(emulated: true).Should().Be("SMOKE RUN — NOT VALID FOR COMPARISON (emulated SQL Server / tiny data)");
+        Report.SmokeBanner(emulated: false).Should().Be("SMOKE RUN — NOT VALID FOR COMPARISON (tiny data)");
+        emulated.Should().StartWith("> **" + Report.SmokeBanner(emulated: true) + "**");
+        emulated.Split('\n').Count(l => l.Contains(Report.SmokeBanner(emulated: true))).Should().BeGreaterThan(1, "the banner repeats at the end too");
+        native.Should().StartWith("> **" + Report.SmokeBanner(emulated: false) + "**").And.NotContain("emulat");
+        full.Should().NotContain(Report.SmokeBannerPrefix);
+    }
+
+    [TestMethod]
+    public void The_limits_block_comes_directly_before_the_summary()
+    {
+        var report = new RunReport(false, "Title", [new ReportSection("Images", ["- x"])],
+            [Operation("op", Metric("op", Constant(3, 1.0), Constant(3, 1.0)))], [], Limits: ["- (a) first limit", "- (b) second limit"]);
+
+        var markdown = Report.Render(report);
+
+        var limits = markdown.IndexOf("## Limits of this comparison", StringComparison.Ordinal);
+        limits.Should().BeGreaterThan(markdown.IndexOf("## Images", StringComparison.Ordinal));
+        markdown.IndexOf("- (b) second limit", StringComparison.Ordinal).Should().BeLessThan(markdown.IndexOf("## Summary", StringComparison.Ordinal));
+        markdown[limits..markdown.IndexOf("## Summary", StringComparison.Ordinal)].Should().NotContain("\n## ", "nothing else sits between the limits and the summary")
+            .And.Contain("- (a) first limit");
+    }
+
+    [TestMethod]
+    public void A_metric_caveat_is_printed_beside_its_summary_row_and_above_its_table()
+    {
+        var metric = Metric("cold start", Constant(10, 3000.0), Constant(10, 300.0)) with { Caveat = "SQL Server applies 60 migrations, Postgres 2" };
+        var markdown = Report.Render(Run(smoke: false, Operation("cold start", metric)));
+
+        markdown.Split('\n').Should().Contain(l => l.StartsWith("| cold start") && l.Contains("SQL Server applies 60 migrations, Postgres 2"));
+        Section(markdown, "cold start").Should().Contain("SQL Server applies 60 migrations, Postgres 2");
+    }
+
+    [TestMethod]
+    public void Results_that_differ_between_providers_are_marked_in_the_summary()
+    {
+        var differs = new OperationResult("list", "d", [Metric("list", Constant(3, 1.0), Constant(3, 1.0))], [], ResultMismatch: "SQL Server 50 projects; Postgres 49 projects");
+        var same = Operation("other", Metric("other", Constant(3, 1.0), Constant(3, 1.0)));
+
+        var markdown = Report.Render(Run(smoke: false, differs, same));
+
+        var rows = markdown.Split('\n').Where(l => l.StartsWith("| list") || l.StartsWith("| other")).ToList();
+        rows.Single(l => l.StartsWith("| list")).Should().Contain(Report.MismatchText);
+        rows.Single(l => l.StartsWith("| other")).Should().NotContain(Report.MismatchText);
+        Section(markdown, "list").Should().Contain("SQL Server 50 projects; Postgres 49 projects");
     }
 
     [TestMethod]
@@ -85,7 +138,7 @@ public class ReportTests
         double.IsNaN(summary.Postgres.MedianMs).Should().BeTrue();
         summary.Ratio.Should().BeNull();
         summary.Flagged.Should().BeFalse();
-        Report.Render(Run(smoke: false, new OperationResult("op", "d", [summary.Source], []))).Should().Contain("| Postgres | 0 | n/a | n/a | n/a |");
+        Report.Render(Run(smoke: false, new OperationResult("op", "d", [summary.Source], []))).Should().Contain("| Postgres | 0 | n/a | n/a | n/a | n/a |");
     }
 
     [TestMethod]
@@ -118,5 +171,8 @@ public class ReportTests
     private static OperationResult Operation(string name, params MetricSamples[] metrics) => new(name, $"Description of {name}.", metrics, []);
 
     private static RunReport Run(bool smoke, params OperationResult[] operations) =>
-        new(smoke, "Database speed", [], operations, []);
+        new(smoke, "Database speed", [], operations, [], Emulated: smoke);
+
+    private static RunReport Run(bool smoke, bool emulated, params OperationResult[] operations) =>
+        new(smoke, "Database speed", [], operations, [], Emulated: emulated);
 }

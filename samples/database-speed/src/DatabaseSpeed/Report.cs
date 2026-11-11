@@ -7,7 +7,12 @@ namespace DatabaseSpeed;
 /// <summary>Every sample of one metric, per provider (milliseconds).</summary>
 /// <param name="Operation">The operation the metric belongs to.</param>
 /// <param name="Metric">The metric's name; an operation may time more than one thing.</param>
-public sealed record MetricSamples(string Operation, string Metric, IReadOnlyDictionary<DatabaseProvider, IReadOnlyList<double>> Samples)
+/// <param name="Caveat">Printed beside the metric's summary row and above its table (what the numbers do and don't compare).</param>
+public sealed record MetricSamples(
+    string Operation,
+    string Metric,
+    IReadOnlyDictionary<DatabaseProvider, IReadOnlyList<double>> Samples,
+    string? Caveat = null)
 {
     public IReadOnlyList<double> For(DatabaseProvider provider) =>
         Samples.TryGetValue(provider, out var samples) ? samples : Array.Empty<double>();
@@ -17,22 +22,36 @@ public sealed record ProviderSummary(DatabaseProvider Provider, int Runs, double
 
 /// <param name="Ratio">Postgres median / SQL Server median, or null when either median is missing, NaN or the SQL Server one is not positive.</param>
 /// <param name="Flagged">The Postgres median is more than <see cref="Report.FlagThreshold"/> times the SQL Server one.</param>
-public sealed record MetricSummary(MetricSamples Source, ProviderSummary SqlServer, ProviderSummary Postgres, double? Ratio, bool Flagged);
+public sealed record MetricSummary(MetricSamples Source, ProviderSummary SqlServer, ProviderSummary Postgres, double? Ratio, bool Flagged)
+{
+    /// <summary>Postgres median - SQL Server median (ms), or null when either is missing.</summary>
+    public double? Delta => Comparison.Delta(SqlServer.MedianMs, Postgres.MedianMs);
+}
 
 /// <param name="Notes">Extra lines under the operation's table (throughput, counts, caveats).</param>
-public sealed record OperationResult(string Name, string Description, IReadOnlyList<MetricSamples> Metrics, IReadOnlyList<string> Notes);
+/// <param name="ResultMismatch">Set when the two providers returned different results; the summary marks the row.</param>
+public sealed record OperationResult(
+    string Name,
+    string Description,
+    IReadOnlyList<MetricSamples> Metrics,
+    IReadOnlyList<string> Notes,
+    string? ResultMismatch = null);
 
 /// <param name="Lines">Markdown lines, rendered as they are.</param>
 public sealed record ReportSection(string Title, IReadOnlyList<string> Lines);
 
 /// <param name="Sections">Rendered before the summary (hardware, images, limits, data volumes, provenance).</param>
 /// <param name="Trailer">Rendered after the operations (things to watch).</param>
+/// <param name="Limits">Markdown lines of "Limits of this comparison", rendered directly above the summary.</param>
+/// <param name="Emulated">SQL Server ran under emulation (a smoke run on a non-x86-64 Docker host).</param>
 public sealed record RunReport(
     bool Smoke,
     string Title,
     IReadOnlyList<ReportSection> Sections,
     IReadOnlyList<OperationResult> Operations,
-    IReadOnlyList<ReportSection> Trailer);
+    IReadOnlyList<ReportSection> Trailer,
+    IReadOnlyList<string>? Limits = null,
+    bool Emulated = false);
 
 /// <summary>
 /// Turns the samples into RESULTS.md: per metric, the run count, median and nearest-rank p95 for each provider, the
@@ -43,7 +62,12 @@ public static class Report
 {
     public const double FlagThreshold = 1.20;
     public const string FlagText = "**FLAG: Postgres >20% slower**";
-    public const string SmokeBanner = "SMOKE RUN — NOT VALID FOR COMPARISON (emulated SQL Server / tiny data)";
+    public const string MismatchText = "**RESULTS DIFFER**";
+    public const string SmokeBannerPrefix = "SMOKE RUN — NOT VALID FOR COMPARISON";
+
+    /// <summary>The smoke banner; it names emulation only when SQL Server really ran emulated.</summary>
+    public static string SmokeBanner(bool emulated) =>
+        emulated ? $"{SmokeBannerPrefix} (emulated SQL Server / tiny data)" : $"{SmokeBannerPrefix} (tiny data)";
 
     private static readonly DatabaseProvider[] Providers = [DatabaseProvider.SqlServer, DatabaseProvider.Postgres];
 
@@ -60,9 +84,9 @@ public static class Report
         var md = new StringBuilder();
         if (report.Smoke)
         {
-            md.Append("> **").Append(SmokeBanner).Append("**\n");
+            md.Append("> **").Append(SmokeBanner(report.Emulated)).Append("**\n");
             md.Append("> This file proves every operation runs end to end on both providers. Its numbers mean nothing: ");
-            md.Append("SQL Server ran under amd64 emulation and the data volumes are tiny.\n\n");
+            md.Append(report.Emulated ? "SQL Server ran under amd64 emulation, and the data volumes and run counts are tiny.\n\n" : "the data volumes and run counts are tiny.\n\n");
         }
 
         md.Append("# ").Append(report.Title).Append("\n\n");
@@ -75,20 +99,28 @@ public static class Report
             .Select(op => (Operation: op, Metrics: op.Metrics.Select(Summarize).ToList()))
             .ToList();
 
+        if (report.Limits is { Count: > 0 })
+        {
+            AppendSection(md, new ReportSection("Limits of this comparison", report.Limits));
+        }
+
         md.Append("## Summary\n\n");
-        md.Append("Medians in ms. Ratio = Postgres median / SQL Server median (above 1 means Postgres is slower). ");
-        md.Append("A flag marks a Postgres median more than 20% slower; there is no pass/fail threshold.\n\n");
-        md.Append("| Operation | SQL Server median ms | Postgres median ms | Postgres / SQL Server | Flag |\n");
-        md.Append("|---|---:|---:|---:|---|\n");
-        foreach (var (_, metrics) in summaries)
+        md.Append("Medians in ms. Delta = Postgres median - SQL Server median; ratio = Postgres median / SQL Server median ");
+        md.Append("(above 1 means Postgres is slower). A flag marks a Postgres median more than 20% slower; read it with the delta, ");
+        md.Append("since on sub-millisecond rows 20% is a fraction of a millisecond. There is no pass/fail threshold.\n\n");
+        md.Append("| Operation | SQL Server median ms | Postgres median ms | Postgres - SQL Server (ms) | Postgres / SQL Server | Flag |\n");
+        md.Append("|---|---:|---:|---:|---:|---|\n");
+        foreach (var (operation, metrics) in summaries)
         {
             foreach (var s in metrics)
             {
-                md.Append("| ").Append(Escape(s.Source.Metric))
+                var marks = new[] { s.Flagged ? FlagText : null, operation.ResultMismatch is null ? null : MismatchText }.OfType<string>();
+                md.Append("| ").Append(Escape(s.Source.Metric)).Append(s.Source.Caveat is { } caveat ? $" ({Escape(caveat)})" : string.Empty)
                   .Append(" | ").Append(Ms(s.SqlServer.MedianMs))
                   .Append(" | ").Append(Ms(s.Postgres.MedianMs))
+                  .Append(" | ").Append(DeltaText(s.Delta))
                   .Append(" | ").Append(RatioText(s.Ratio))
-                  .Append(" | ").Append(s.Flagged ? FlagText : string.Empty)
+                  .Append(" | ").Append(string.Join(" ", marks))
                   .Append(" |\n");
             }
         }
@@ -99,6 +131,11 @@ public static class Report
         {
             md.Append("### ").Append(operation.Name).Append("\n\n");
             md.Append(operation.Description).Append("\n\n");
+            if (operation.ResultMismatch is { } mismatch)
+            {
+                md.Append(MismatchText).Append(": ").Append(mismatch).Append("\n\n");
+            }
+
             foreach (var s in metrics)
             {
                 if (metrics.Count > 1 || s.Source.Metric != operation.Name)
@@ -106,8 +143,13 @@ public static class Report
                     md.Append("**").Append(Escape(s.Source.Metric)).Append("**\n\n");
                 }
 
-                md.Append("| Provider | Runs | Median ms | p95 ms | Postgres / SQL Server (median) | Flag |\n");
-                md.Append("|---|---:|---:|---:|---:|---|\n");
+                if (s.Source.Caveat is { } caveat)
+                {
+                    md.Append('*').Append(caveat).Append("*\n\n");
+                }
+
+                md.Append("| Provider | Runs | Median ms | p95 ms | Postgres - SQL Server (median ms) | Postgres / SQL Server (median) | Flag |\n");
+                md.Append("|---|---:|---:|---:|---:|---:|---|\n");
                 foreach (var provider in Providers)
                 {
                     var p = provider == DatabaseProvider.SqlServer ? s.SqlServer : s.Postgres;
@@ -115,6 +157,7 @@ public static class Report
                       .Append(" | ").Append(p.Runs.ToString(CultureInfo.InvariantCulture))
                       .Append(" | ").Append(Ms(p.MedianMs))
                       .Append(" | ").Append(Ms(p.P95Ms))
+                      .Append(" | ").Append(provider == DatabaseProvider.Postgres ? DeltaText(s.Delta) : string.Empty)
                       .Append(" | ").Append(provider == DatabaseProvider.Postgres ? RatioText(s.Ratio) : string.Empty)
                       .Append(" | ").Append(provider == DatabaseProvider.Postgres && s.Flagged ? FlagText : string.Empty)
                       .Append(" |\n");
@@ -141,7 +184,7 @@ public static class Report
 
         if (report.Smoke)
         {
-            md.Append("> **").Append(SmokeBanner).Append("**\n");
+            md.Append("> **").Append(SmokeBanner(report.Emulated)).Append("**\n");
         }
 
         return md.ToString();
@@ -159,6 +202,12 @@ public static class Report
 
     private static string RatioText(double? ratio) =>
         ratio is { } r ? r.ToString("F2", CultureInfo.InvariantCulture) : "n/a";
+
+    private static string DeltaText(double? delta) => delta switch
+    {
+        null => "n/a",
+        { } d => (d >= 0 ? "+" : "-") + Math.Abs(d).ToString(Math.Abs(d) >= 1000 ? "F0" : "F2", CultureInfo.InvariantCulture),
+    };
 
     private static ProviderSummary SummarizeProvider(DatabaseProvider provider, IReadOnlyList<double> samples) =>
         new(provider, samples.Count, Stats.Median(samples), samples.Count == 0 ? double.NaN : Stats.PercentileNearestRank(samples, 95));
@@ -191,6 +240,10 @@ public static class Comparison
 
         return postgresMedian / sqlServerMedian;
     }
+
+    /// <returns>Postgres median - SQL Server median (ms), or null when either is missing or not finite.</returns>
+    public static double? Delta(double sqlServerMedian, double postgresMedian) =>
+        double.IsFinite(sqlServerMedian) && double.IsFinite(postgresMedian) ? postgresMedian - sqlServerMedian : null;
 
     /// <summary>
     /// More than <see cref="Report.FlagThreshold"/>. The tolerance keeps a ratio that is exactly 1.2 in decimal (10.0 vs

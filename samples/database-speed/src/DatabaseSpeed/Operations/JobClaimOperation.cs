@@ -13,8 +13,11 @@ namespace DatabaseSpeed.Operations;
 /// time gives the throughput, and every successful <c>TryClaimAsync</c> is a per-claim latency sample. Neither
 /// provider's claim skips locked rows (Postgres has no <c>SKIP LOCKED</c>, by design), so a worker that picks the row
 /// another worker is claiming waits for it and then gets no job; those empty claims are counted. A claim statement
-/// that fails (for example a SQL Server deadlock victim) is retried by EF's execution strategy inside
-/// <c>TryClaimAsync</c>, as in production; the runner lists those failures under the operation.
+/// that fails with a provider error, such as a SQL Server deadlock victim (1205), is caught by <c>TryClaimAsync</c>
+/// (<c>JobQueueService.cs</c>, the <c>catch ... when DatabaseErrors.TryGetProviderError</c>): it logs a "Job claim failed"
+/// warning and returns null, so the worker sees an empty claim and tries again. That is not a failed operation. In the
+/// local full-volume check every 1205 reached that catch (4 failed commands, 4 warnings), so EF's retrying execution
+/// strategy did not retry it. The runner lists the failed commands under the operation.
 /// </summary>
 public sealed class JobClaimOperation : IOperation
 {
@@ -125,7 +128,8 @@ public sealed class JobClaimOperation : IOperation
             var median = Stats.Median(m.Samples(DrainMetric));
             return double.IsNaN(median) || median <= 0 ? "n/a" : $"{_jobs / (median / 1000.0):N0} jobs/s";
         }),
-        "Empty claims per drain (a worker lost the race for a row, or found nothing pending at the drain's tail), median / max: " +
+        "Empty claims per drain (a worker lost the race for a row, found nothing pending at the drain's tail, or was a SQL Server " +
+            "deadlock victim that `TryClaimAsync` turned into no job), median / max: " +
             Runner.PerProvider(measured, m => $"{Stats.Median(m.Counter("empty claims")):N0} / {(m.Counter("empty claims").DefaultIfEmpty(0).Max()):N0}"),
     ];
 

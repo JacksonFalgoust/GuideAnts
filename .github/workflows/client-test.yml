@@ -208,6 +208,9 @@ jobs:
         working-directory: samples/database-speed
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history, so RESULTS.md's "last commit touching src/server" is real.
+          fetch-depth: 0
 
       - uses: actions/setup-dotnet@v4
         with:

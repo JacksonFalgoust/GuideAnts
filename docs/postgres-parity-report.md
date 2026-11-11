@@ -405,8 +405,30 @@ _To be filled in (Task 18)._ At minimum:
 **Numbers pending.** They come from the first x86-64 CI run. After the branch is pushed, run the `database-speed` job of
 `.github/workflows/client-test.yml` by hand (Actions > "Client and Server tests" > Run workflow). It runs only on
 `workflow_dispatch`. Download the `database-speed-results` artifact into `samples/database-speed/RESULTS.md` and
-summarize it here. No local numbers are reported: this branch was built on Apple Silicon, where SQL Server's amd64-only
-image runs emulated. A full run there exits 2 by design.
+summarize it here. Dispatch it at least twice: one run has no variance estimate. No local numbers are reported: this
+branch was built on Apple Silicon, where SQL Server's amd64-only image runs emulated. A full run exits 2 unless both the
+harness and the Docker daemon are x86-64.
+
+GitHub requires a workflow with the `workflow_dispatch` trigger to exist on the default branch before `gh workflow run`
+(or the Run workflow button) can start it. Until `client-test.yml` with the trigger is on `main`, run the harness by
+hand on an x86-64 Linux machine with Docker and the .NET 8 SDK (`docker info` must report `Architecture: x86_64`):
+
+```bash
+git checkout feature/postgres-db-switch
+cd samples/database-speed
+dotnet test DatabaseSpeed.sln
+dotnet run -c Release --project src/DatabaseSpeed   # writes samples/database-speed/RESULTS.md
+```
+
+**How to read RESULTS.md:** it opens with "Limits of this comparison", directly above the summary. Read it before any
+ratio:
+- the cold start is the product's fresh-install cost: SQL Server applies its whole migration history, Postgres two
+  migrations;
+- one run has no variance estimate, so read the delta (ms) next to each ratio on sub-millisecond rows;
+- both run stock settings (Postgres `shared_buffers` 128 MB, Npgsql auto-prepare off);
+- the job-claim latency covers successful claims only, under busy-spin contention;
+- the CPU limits are a quota;
+- storage differs (a Postgres volume vs SQL Server's writable layer).
 
 **The harness:** `samples/database-speed` ([README](../samples/database-speed/README.md)) is a console app.
 - **Setup:**
@@ -464,7 +486,8 @@ both. Its numbers are not evidence.
   no job, as on SQL Server. See the throughput, the empty claims per drain, and the failed database commands. A local
   full-volume check (SQL Server emulated, so no timing evidence) saw SQL Server's claim produce deadlock victims (1205)
   under the 8-worker contention: 4 in 26 drains of 1,000 jobs. Each one is caught by `TryClaimAsync`, which logs
-  "Job claim failed" and returns no job; Postgres had none. Whether this reproduces on x86 is for the CI run to show.
+  "Job claim failed" and returns no job (an empty claim). EF's execution strategy didn't retry them. Postgres had none.
+  Whether this reproduces on x86 is for the CI run to show.
 - **Path-prefix plans:** the same local check showed that, at full volume, both databases read the path-prefix query
   through `IX_NotebookFiles_NotebookId` and apply the `LIKE` as a residual filter. SQL Server doesn't seek the
   `RelativePath` index either, so the collation limit doesn't change this query's plan. The plans are

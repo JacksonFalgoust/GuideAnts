@@ -72,6 +72,12 @@ public interface IOperation
 
     /// <summary>Extra lines for the report (throughput, counts, what the run checked).</summary>
     IReadOnlyList<string> Notes(IReadOnlyDictionary<DatabaseProvider, Measurement> measured) => [];
+
+    /// <summary>What a metric's numbers do and don't compare, printed beside its summary row.</summary>
+    string? Caveat(string metric) => null;
+
+    /// <summary>Set when the two providers returned different results; the summary marks the row.</summary>
+    string? ResultMismatch => null;
 }
 
 /// <summary>
@@ -105,6 +111,10 @@ public abstract class ScopedCallOperation<TResult> : IOperation
         Check(result);
         measurement.Add(Name, Measurement.Ms(stopwatch));
     }
+
+    public string? ResultMismatch => _results.Values.Distinct().Count() > 1
+        ? string.Join("; ", _results.OrderBy(kv => kv.Key).Select(kv => $"{Report.ProviderName(kv.Key)} {kv.Value}"))
+        : null;
 
     public virtual IReadOnlyList<string> Notes(IReadOnlyDictionary<DatabaseProvider, Measurement> measured)
     {

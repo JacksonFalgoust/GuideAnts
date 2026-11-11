@@ -60,7 +60,7 @@ public static class Runner
         }
 
         var metrics = operation.Metrics
-            .Select(metric => new MetricSamples(operation.Name, metric, measured.ToDictionary(kv => kv.Key, kv => kv.Value.Samples(metric))))
+            .Select(metric => new MetricSamples(operation.Name, metric, measured.ToDictionary(kv => kv.Key, kv => kv.Value.Samples(metric)), operation.Caveat(metric)))
             .ToList();
         foreach (var metric in metrics)
         {
@@ -77,9 +77,10 @@ public static class Runner
         var failures = CommandFailures.Since(failuresBefore);
         notes.Add(failures.Count == 0
             ? "Failed database commands (warm-up and measured runs): none"
-            : "Failed database commands (warm-up and measured runs; EF retried them or the service handled them, and the time is inside the measurement): " +
+            : "Failed database commands (warm-up and measured runs; each was recovered (retried by EF, caught by the calling service, or " +
+              "expected by EF's migrator), or the operation would have failed; the time is inside the measurement): " +
               string.Join("; ", failures));
-        return new OperationResult(operation.Name, operation.Description, metrics, notes);
+        return new OperationResult(operation.Name, operation.Description, metrics, notes, operation.ResultMismatch);
     }
 
     public static string PerProvider(IReadOnlyDictionary<DatabaseProvider, Measurement> measured, Func<Measurement, string> describe) =>

@@ -9,24 +9,34 @@ section of [the parity report](../../docs/postgres-parity-report.md).
 
 ## Run it
 
-**Real numbers come only from x86-64 Linux.** SQL Server's image is amd64-only. On Apple Silicon it runs under
-emulation and looks much slower than it is, so a full run on any other host exits `2` and says so.
+**Real numbers come only from x86-64.** SQL Server's image is amd64-only. On Apple Silicon it runs under emulation
+and looks much slower than it is. So a full run exits `2` and says so unless both the harness and the Docker daemon
+are x86-64. The harness reads the daemon's architecture through Testcontainers' Docker client.
 
 - **In CI (the usual way):** GitHub > Actions > "Client and Server tests" > Run workflow, on the branch to measure. The
   `database-speed` job runs only for manual dispatches, on `ubuntu-latest`. It uploads `RESULTS.md` as the
-  `database-speed-results` artifact. Download it into `samples/database-speed/` and commit it.
-- **On an x86-64 Linux machine** with Docker:
+  `database-speed-results` artifact. Download it into `samples/database-speed/` and commit it. Dispatch it at least
+  twice (see the limits below).
+
+  GitHub requires a workflow with the `workflow_dispatch` trigger to exist on the default branch before
+  `gh workflow run` (or the Run workflow button) can start it. Until `client-test.yml` with the trigger is on `main`,
+  run the harness by hand on an x86-64 machine instead.
+- **On an x86-64 Linux machine** with Docker and the .NET 8 SDK (`docker info` must report `Architecture: x86_64`):
 
   ```bash
+  git clone <repo> && cd <repo> && git checkout feature/postgres-db-switch
+  echo "$GHCR_TOKEN" | docker login ghcr.io -u <user> --password-stdin   # only if the SQL Server image needs it
   cd samples/database-speed
-  dotnet test DatabaseSpeed.sln                                  # unit tests (no Docker)
-  dotnet run -c Release --project src/DatabaseSpeed               # full run, writes RESULTS.md
+  dotnet test DatabaseSpeed.sln                                           # unit tests (no Docker)
+  dotnet run -c Release --project src/DatabaseSpeed                       # full run, writes RESULTS.md here
   ```
 
+  Optionally set `GA_SPEED_MSSQL_IMAGE` and `GA_SPEED_POSTGRES_IMAGE` first (see below).
 - **Smoke run (any host, Apple Silicon included):** `dotnet run -c Release --project src/DatabaseSpeed -- --smoke`.
-  It uses tiny data and few runs, and writes `RESULTS-smoke.md`. That file opens and closes with the banner
-  **SMOKE RUN — NOT VALID FOR COMPARISON (emulated SQL Server / tiny data)**, and git ignores it. It only proves that
-  every operation runs end to end on both databases.
+  It uses tiny data and few runs, and writes `RESULTS-smoke.md`, which git ignores. The file opens and closes with the
+  banner **SMOKE RUN — NOT VALID FOR COMPARISON (emulated SQL Server / tiny data)**. The banner names emulation only
+  when the Docker daemon isn't x86-64; there it reads "(tiny data)". It only proves that every operation runs end to
+  end on both databases.
 
 Other options: `--only <parts of names>` runs a subset (for example `--only search,cold`), and the report then says
 it's partial. `--output <dir>` writes the results file somewhere else. The images can be changed with
@@ -73,10 +83,17 @@ also removes them if the process dies. It doesn't touch any other container.
   Only the production call is timed, with a `Stopwatch` in the harness process, so the times include EF, the client
   driver and the round trips. Each result is checked after the timer stops, and a run that did no work fails the whole
   run instead of looking fast. Any error the services log fails the run too, because the searchers swallow their own
-  errors. EF's own "Failed executing DbCommand" errors are different: EF logs every failed attempt, including the ones
-  its retrying execution strategy then retries successfully, as in production (SQL Server deadlock victims under
-  job-claim contention, for example). Those are counted per operation with their error codes, their cost stays inside
-  the measured time, and an unrecovered one still fails the operation. p95 is nearest-rank.
+  errors. EF's own "Failed executing DbCommand" errors are different: EF logs every failed attempt, both the ones its
+  retrying execution strategy retries and the ones a service catches by design. SQL Server deadlock victims (1205) in
+  the job claim are the second kind: `JobQueueService.TryClaimAsync` catches the provider error, logs a "Job claim
+  failed" warning and returns no job. That's an empty claim, not a failed operation; the strategy didn't retry them in
+  the local check. Those failures are counted per operation with their error codes, their cost stays inside the
+  measured time, and an unrecovered one still fails the operation. p95 is nearest-rank.
+- **Settling:** after seeding, statistics are refreshed. SQL Server's full-text catalog is reorganized
+  (`ALTER FULLTEXT CATALOG DocumentChunks_Catalog REORGANIZE`), and the harness waits for its master merge; the fragment
+  counts before and after are recorded. That is the counterpart of `VACUUM ANALYZE` flushing Postgres' GIN pending
+  list. Then both servers get a `CHECKPOINT` before the first timed operation. SQL Server's memory is checked against
+  the container limit, and the header warns if it isn't honoured.
 
 ## What it times
 
@@ -97,6 +114,28 @@ also removes them if the process dies. It doesn't touch any other container.
 The "very common word" search uses the text `model`, which is in about half the chunks. It isn't a saved query, so it
 uses Q14's saved vector; the vector half costs the same whichever vector it is.
 
+## Limits of this comparison
+
+RESULTS.md prints these, with this run's figures, directly above its summary:
+
+- **(a) Cold start compares migration histories, not engines.** It measures the product's fresh-install cost. SQL
+  Server applies its whole history (the LiteBaselineV1 baseline and every later migration, including the full-text
+  catalog), while Postgres applies two (PostgresBaselineV1 and AddDocumentChunkFullText). The count each applied is
+  printed beside the row.
+- **(b) One run, no variance estimate.** Each run is one run on one machine (a shared CI VM). On sub-millisecond rows,
+  a >20% flag can be about 0.1 ms, so read the delta (ms) column next to the ratio, and dispatch at least twice.
+- **(c) Stock settings, as shipped.** Postgres runs `shared_buffers` 128 MB and `work_mem` 4 MB, and Npgsql's
+  `Max Auto Prepare` defaults to 0 (no automatic prepared statements; the run reads it from the connection string).
+  SQL Server sizes its memory itself and caches plans. The seeded data fits in memory on both; the header gives the
+  sizes.
+- **(d) Job claims are a stress test.** Per-claim latency counts successful claims only. Lost races, the drain's tail
+  and deadlock victims are empty claims, and the drain time and throughput include them. The workers busy-spin, so
+  this measures contention, not the background processor's pace.
+- **(e) Container limits are a quota.** On a 4-vCPU runner, the 4-CPU quota is the whole machine, shared with the
+  harness. Fairness comes from interleaving, not from isolation.
+- **(f) Storage differs, effect unverified.** Postgres' data directory is an anonymous Docker volume (the image
+  declares one); SQL Server writes to the container's writable layer. The header records the actual mounts.
+
 ## Things to watch
 
 These are carry-overs from earlier reviews. RESULTS.md repeats them next to the numbers, and adds query plans for the
@@ -112,10 +151,11 @@ first two.
 3. **`ts_rank_cd` before `LIMIT`.** Postgres ranks every table-wide full-text match, across all projects, before it
    takes the candidates. Compare the four search rows; each one lists its table-wide match count on both databases.
 4. **No `SKIP LOCKED` in the Postgres job claim**, by design. A contended claimer waits, then gets no job, as on SQL
-   Server. Read the job-claim throughput, the empty claims per drain, and the failed database commands. In a local
-   full-volume check (SQL Server emulated, so its timings mean nothing), SQL Server's claim produced deadlock victims
-   (1205) under the 8-worker contention: 4 in 26 drains of 1,000 jobs. Each one stalls a claimer for the deadlock
-   monitor's interval, and then `TryClaimAsync` returns no job. Postgres had none.
+   Server. Read the job-claim throughput, the empty claims per drain, and the failed database commands. A local
+   full-volume check ran with SQL Server emulated, so its timings mean nothing. In it, SQL Server's claim produced
+   deadlock victims (1205) under the 8-worker contention: 4 in 26 drains of 1,000 jobs. Each one stalls a claimer for
+   the deadlock monitor's interval. Then `TryClaimAsync` catches the error, logs "Job claim failed" and returns no job
+   (an empty claim). The execution strategy didn't retry them. Postgres had none.
 5. **Stock Postgres memory settings**, as shipped (`shared_buffers` 128 MB). SQL Server sizes its buffer pool from the
    container's memory instead.
 

@@ -46,4 +46,13 @@ public class ComparisonTests
         Comparison.IsFlagged(12.1 / 10.0).Should().BeTrue();
         Comparison.IsFlagged(1.2000001).Should().BeTrue();
     }
+
+    [TestMethod]
+    public void Delta_is_Postgres_minus_SQL_Server_and_missing_when_a_median_is()
+    {
+        Comparison.Delta(sqlServerMedian: 10.0, postgresMedian: 12.1).Should().BeApproximately(2.1, 1e-9);
+        Comparison.Delta(sqlServerMedian: 0.5, postgresMedian: 0.38).Should().BeApproximately(-0.12, 1e-9);
+        Comparison.Delta(double.NaN, 1.0).Should().BeNull();
+        Comparison.Delta(1.0, double.NaN).Should().BeNull();
+    }
 }

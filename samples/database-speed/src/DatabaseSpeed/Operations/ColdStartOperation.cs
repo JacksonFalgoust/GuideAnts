@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using GuideAntsApi.Database;
+using GuideAntsApi.DataModel;
+using Microsoft.EntityFrameworkCore;
 using GuideAntsApi.DataModel.Database;
 using GuideAntsApi.Services.Core;
 using Microsoft.Data.SqlClient;
@@ -16,6 +18,7 @@ namespace DatabaseSpeed.Operations;
 public sealed class ColdStartOperation(string storagePath) : IOperation
 {
     private readonly Dictionary<DatabaseProvider, int> _runs = [];
+    private readonly Dictionary<DatabaseProvider, int> _migrations = [];
 
     public string Name => "cold start: migrate an empty database + first query";
 
@@ -24,7 +27,15 @@ public sealed class ColdStartOperation(string storagePath) : IOperation
         "(`SqlServerDatabaseInitializer.EnsureCatalogAndMigrate`: create the catalog, `RECOVERY SIMPLE`, apply the SQL Server migrations; " +
         "`PostgresDatabaseInitializer.EnsureDatabaseAndMigrate`: version check, create the database, apply the Postgres migrations), then a " +
         "fresh service container like the host's and the Projects page query (`IProjectService.GetProjectsAsync()`). The database is dropped " +
-        "afterwards (not timed). Server start-up itself isn't included; both containers were started once, before the run.";
+        "afterwards (not timed). Server start-up itself isn't included; both containers were started once, before the run. " +
+        "**This is the product's fresh-install cost, not an engine-only comparison:** the two providers apply different migration " +
+        "histories (SQL Server the LiteBaselineV1 baseline and every later migration, including the full-text catalog; Postgres its own " +
+        "baseline and the full-text migration); the count each applied is beside the row.";
+
+    public string? Caveat(string metric) => _migrations.Count == 0
+        ? null
+        : "fresh-install cost, not an engine-only comparison: " +
+          string.Join(" vs ", _migrations.OrderBy(kv => kv.Key).Select(kv => $"{Report.ProviderName(kv.Key)} applies {kv.Value} migrations"));
 
     public bool IsColdStart => true;
 
@@ -52,9 +63,11 @@ public sealed class ColdStartOperation(string storagePath) : IOperation
         await using (var scope = services.CreateAsyncScope())
         {
             projects = (await scope.ServiceProvider.GetRequiredService<IProjectService>().GetProjectsAsync()).Count();
+            stopwatch.Stop();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            _migrations[target.Provider] = (await db.Database.GetAppliedMigrationsAsync(ct)).Count();
         }
 
-        stopwatch.Stop();
         await DropAsync(target, database, connectionString, ct);
         if (projects != 0)
         {

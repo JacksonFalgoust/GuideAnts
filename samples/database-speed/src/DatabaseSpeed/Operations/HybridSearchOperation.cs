@@ -70,6 +70,11 @@ public sealed class HybridSearchOperation : IOperation
         measurement.Add(Name, Measurement.Ms(stopwatch));
     }
 
+    /// <summary>The result lists may rank differently (parity report #49); a different number of results is a mismatch.</summary>
+    public string? ResultMismatch => _prepared.Values.Select(p => p.Results).Distinct().Count() > 1
+        ? "results returned: " + string.Join("; ", _prepared.OrderBy(kv => kv.Key).Select(kv => $"{Report.ProviderName(kv.Key)} {kv.Value.Results}"))
+        : null;
+
     public IReadOnlyList<string> Notes(IReadOnlyDictionary<DatabaseProvider, Measurement> measured) =>
     [
         "Searcher resolved: " + string.Join("; ", _prepared.OrderBy(kv => kv.Key).Select(kv => $"{Report.ProviderName(kv.Key)} `{kv.Value.Searcher}`")),

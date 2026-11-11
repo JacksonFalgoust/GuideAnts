@@ -78,7 +78,8 @@ public static class Program
             return 0;
         }
 
-        var decision = HostGuard.Evaluate(RuntimeInformation.OSArchitecture, options.Smoke);
+        var dockerArchitecture = await DockerHost.ArchitectureAsync(CancellationToken.None);
+        var decision = HostGuard.Evaluate(RuntimeInformation.OSArchitecture, dockerArchitecture, options.Smoke);
         if (!decision.Proceed)
         {
             Console.Error.WriteLine(decision.Message);
@@ -99,7 +100,7 @@ public static class Program
 
         try
         {
-            await RunAsync(options, cancel.Token);
+            await RunAsync(options, decision.SqlServerEmulated, dockerArchitecture, cancel.Token);
             return 0;
         }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested)
@@ -114,7 +115,7 @@ public static class Program
         }
     }
 
-    private static async Task RunAsync(CliOptions options, CancellationToken ct)
+    private static async Task RunAsync(CliOptions options, bool sqlServerEmulated, string? dockerArchitecture, CancellationToken ct)
     {
         // SqlServerDatabaseInitializer reads the provider from these; the harness chooses providers itself.
         Environment.SetEnvironmentVariable("Database:Provider", null);
@@ -151,14 +152,23 @@ public static class Program
                 servers.AddRange(starts.Where(t => t.IsCompletedSuccessfully).Select(t => t.Result));
             }
 
+            var preparation = new List<string>();
             foreach (var server in servers)
             {
                 var target = ProviderTarget.Create(server, DatabasePreparation.DatabaseName, storagePath);
                 targets.Add(target);
-                await DatabasePreparation.PrepareAsync(target, seed, Log, ct);
+                preparation.AddRange(await DatabasePreparation.PrepareAsync(target, seed, Log, ct));
             }
 
-            var header = await HeaderAsync(plan, seed, code, servers, targets, operations, options, ct);
+            // Both servers settled (statistics, SQL Server's full-text merge) and checkpointed, after the second seed too.
+            foreach (var target in targets)
+            {
+                await DatabasePreparation.CheckpointAsync(target, ct);
+            }
+
+            preparation.Add("- `CHECKPOINT` on both servers after both seeds, before the first timed operation");
+            var facts = await RunFacts.ReadAsync(targets, servers, ct);
+            var header = await HeaderAsync(plan, seed, code, servers, targets, operations, options, dockerArchitecture, preparation, facts, ct);
 
             var results = new List<OperationResult>();
             foreach (var operation in operations)
@@ -168,7 +178,7 @@ public static class Program
             }
 
             var trailer = await TrailerAsync(operations, targets, ct);
-            var report = new RunReport(plan.Smoke, "Database speed: SQL Server vs Postgres", header, results, trailer);
+            var report = new RunReport(plan.Smoke, "Database speed: SQL Server vs Postgres", header, results, trailer, Limits(facts), sqlServerEmulated);
             var outputDirectory = options.OutputDirectory ?? sampleRoot;
             Directory.CreateDirectory(outputDirectory);
             var path = Path.Combine(outputDirectory, plan.ResultsFileName);
@@ -248,6 +258,9 @@ public static class Program
         IReadOnlyList<ProviderTarget> targets,
         IReadOnlyList<IOperation> operations,
         CliOptions options,
+        string? dockerArchitecture,
+        IReadOnlyList<string> preparation,
+        RunFacts facts,
         CancellationToken ct)
     {
         var run = new List<string>
@@ -268,8 +281,9 @@ public static class Program
         var limits = new List<string>();
         foreach (var server in servers)
         {
-            images.AddRange(await Provenance.ImageLinesAsync(server, ct));
+            images.AddRange(await Provenance.ImageLinesAsync(server, dockerArchitecture, ct));
             limits.Add(await Provenance.LimitsLineAsync(server, ct));
+            limits.Add($"- {Report.ProviderName(server.Provider)} data directory: {facts.Storage[server.Provider]}");
         }
 
         foreach (var target in targets)
@@ -310,7 +324,15 @@ public static class Program
         }
 
         volumes.Add(string.Empty);
-        volumes.Add("Statistics were refreshed after seeding (`EXEC sp_updatestats` / `VACUUM ANALYZE`), and SQL Server's full-text population had finished.");
+        volumes.Add(string.Create(CultureInfo.InvariantCulture,
+            $"Space used after seeding: SQL Server {facts.UsedMegabytes[DatabaseProvider.SqlServer]:N0} MB (allocated pages, full-text catalog not included), " +
+            $"Postgres {facts.UsedMegabytes[DatabaseProvider.Postgres]:N0} MB (`pg_database_size`). Migrations applied to the seeded databases: " +
+            $"SQL Server {facts.Migrations[DatabaseProvider.SqlServer]}, Postgres {facts.Migrations[DatabaseProvider.Postgres]}."));
+        volumes.Add(string.Empty);
+        volumes.Add("Settling before the first timed operation:");
+        volumes.Add(string.Empty);
+        volumes.Add("- statistics refreshed after seeding (`EXEC sp_updatestats` / `VACUUM ANALYZE`, which also flushes the GIN pending list)");
+        volumes.AddRange(preparation);
 
         return
         [
@@ -365,6 +387,34 @@ public static class Program
         sections.Add(new ReportSection("Warnings the services logged (all runs)", warnings));
         return sections;
     }
+
+    /// <summary>What the numbers can't tell, printed directly above the summary so nobody reads a ratio without it.</summary>
+    private static IReadOnlyList<string> Limits(RunFacts facts) =>
+    [
+        $"- **(a) Cold start compares migration histories, not engines.** It is the product's fresh-install cost: SQL Server applies " +
+            $"{facts.Migrations[DatabaseProvider.SqlServer]} migrations (the LiteBaselineV1 baseline and every later one, including the full-text " +
+            $"catalog), Postgres {facts.Migrations[DatabaseProvider.Postgres]} (PostgresBaselineV1 and AddDocumentChunkFullText). Its ratio says nothing about either engine's speed.",
+        "- **(b) One run, no variance estimate.** This is a single run on one machine (in CI, a shared VM). Medians of interleaved runs damp " +
+            "noise, but nothing here measures run-to-run variance, and on sub-millisecond rows a >20% flag can be about 0.1 ms. Read the " +
+            "delta (ms) next to each ratio, and dispatch the job at least twice before drawing conclusions from small differences.",
+        $"- **(c) Stock settings, as shipped.** Postgres runs the image's defaults (shared_buffers {facts.PostgresSharedBuffers}, work_mem " +
+            $"{facts.PostgresWorkMem}), and Npgsql's `Max Auto Prepare` is {facts.MaxAutoPrepare}" +
+            (facts.MaxAutoPrepare == 0 ? " (its default: no automatic prepared statements)" : string.Empty) +
+            ". SQL Server sizes its own memory and caches plans for the parameterized statements. That matches what GuideAnts ships, not a " +
+            $"tuned setup. The seeded data (SQL Server {facts.UsedMegabytes[DatabaseProvider.SqlServer]:N0} MB, Postgres " +
+            $"{facts.UsedMegabytes[DatabaseProvider.Postgres]:N0} MB) fits in each container's 8 GB, so after the warm-up runs it is served " +
+            "from memory on both (SQL Server's buffer pool; Postgres' shared buffers plus the OS page cache).",
+        "- **(d) Job claims are a stress test.** Per-claim latency counts successful claims only. Lost races, empty claims at the drain's " +
+            "tail and SQL Server deadlock victims (1205, which `TryClaimAsync` catches, logs and turns into \"no job\") count as empty claims; " +
+            "the drain time and throughput include them. The workers retry at once (busy-spin) instead of polling like the background " +
+            "processor, so this measures contention, not the processor's normal pace.",
+        "- **(e) Container limits are a quota.** Each container gets a 4-CPU time quota and an 8 GB memory cap, not dedicated cores. On a " +
+            "4-vCPU GitHub runner the quota is the whole machine, shared with the harness process. Fairness comes from running one provider " +
+            "at a time, interleaved run by run, not from isolation.",
+        $"- **(f) Storage differs (effect unverified).** Postgres keeps its data on {facts.Storage[DatabaseProvider.Postgres]}; SQL Server on " +
+            $"{facts.Storage[DatabaseProvider.SqlServer]}. Write-heavy rows (save one chat turn, job claims, cold start) may be affected; " +
+            "this run doesn't measure by how much.",
+    ];
 
     /// <summary>Carry-overs from earlier reviews; RESULTS.md says where to look for each, the parity report says what they mean.</summary>
     private static readonly IReadOnlyList<string> WatchItems =

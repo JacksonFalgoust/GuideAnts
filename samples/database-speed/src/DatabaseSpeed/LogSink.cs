@@ -9,10 +9,11 @@ namespace DatabaseSpeed;
 /// service logs fails the run. Warnings are counted and reported.
 /// </summary>
 /// <remarks>
-/// EF's own "Failed executing DbCommand" errors are counted, not fatal. EF logs every failed attempt, including the
-/// ones its retrying execution strategy then retries successfully (SQL Server deadlock victims under the job-claim
-/// contention, for example). A failure that isn't recovered still surfaces: as an exception out of the operation, or
-/// as the service's own error log. <see cref="CommandFailures"/> records each one's error code for the report.
+/// EF's own "Failed executing DbCommand" errors are counted, not fatal. EF logs every failed attempt: ones its retrying
+/// execution strategy then retries, and ones a service catches by design, such as the SQL Server deadlock victims
+/// (1205) that <c>JobQueueService.TryClaimAsync</c> turns into "no job". A failure that isn't recovered still surfaces:
+/// as an exception out of the operation, or as the service's own error log. <see cref="CommandFailures"/> records each
+/// one's error code for the report.
 /// </remarks>
 public sealed class LogSink : ILoggerProvider
 {
