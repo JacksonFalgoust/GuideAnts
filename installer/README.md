@@ -110,6 +110,13 @@ The installer builds a custom stack from compose fragments. You choose:
 
 After first install, `DB_LAYOUT` is fixed and is not prompted or changed on rerun/`--reconfigure`.
 
+**Postgres instead of SQL Server:** `./guideants.sh --db postgres` (or `GA_DB_PROVIDER=postgres`) uses
+`compose/postgres-separate.yml` in place of the SQL Server layout: `guideants-webapi-ui-slim` plus a
+`guideants-postgres` container (`pgvector/pgvector:0.8.7-pg18`, volume `postgres_data`). The layout prompt is
+skipped. The choice is saved as `DB_PROVIDER` in `.installer_state.env`, so later runs and the stop scripts use it;
+pass `--db sqlserver` to go back. Each provider has its own database, so switching starts on an empty one and
+nothing is migrated. Optional env: `GA_POSTGRES_IMAGE`, `GA_POSTGRES_PASSWORD`.
+
 ### AI backend
 
 | Backend | Approx. size | What you get |
@@ -257,6 +264,7 @@ Use `--doctor` to run all checks read-only and print the exact
 | `--doctor` | Run all checks, change nothing. Prints the compose command that would be used. |
 | `--backend <none\|cpu\|cuda13\|rocm\|slim\|vulkan>` | Skip the interactive AI backend prompt. |
 | `--compose <ghcr\|local>` | Use GHCR pre-built images (default) or local build images. |
+| `--db <sqlserver\|postgres>` | Database provider. Default: the saved one, else `sqlserver` (env `GA_DB_PROVIDER`). |
 | `--mount /path/to/folder` | Mount a host folder into a project on startup (requires browser login). |
 | `--unmount` | Interactively remove a host folder mount (requires browser login). |
 | `--reconfigure` | Re-prompt AI backend and optionals only. `DB_LAYOUT` remains fixed from first install. |
@@ -344,6 +352,7 @@ stop_guideants.cmd
 ```
 
 Reads saved `COMPOSE_FILES` from `.installer_state.env` and runs `docker compose down`.
+`--db sqlserver|postgres` (or `GA_DB_PROVIDER`) overrides the saved database provider.
 
 ## Services
 
@@ -352,7 +361,8 @@ Containers are included only when selected:
 | Container | When included |
 |-----------|----------------|
 | `guideants-webapi-ui` | Always (bundled or slim image depending on DB layout) |
-| `mssql-express` | `DB_LAYOUT=separate` |
+| `mssql-express` | `DB_LAYOUT=separate` (and `DB_PROVIDER=sqlserver`) |
+| `guideants-postgres` | `DB_PROVIDER=postgres` (`--db postgres`) |
 | `guideants-ai` | `AI_BACKEND` is not `none` |
 | `docling-serve` | DocLing optional selected |
 | `documentserver` | DocumentServer optional selected |
@@ -397,6 +407,7 @@ installer/
     │   ├── base.yml
     │   ├── core-bundled.yml
     │   ├── core-separate.yml
+    │   ├── postgres-separate.yml   # --db postgres (in place of core-*.yml)
     │   ├── ai-*.yml
     │   └── *.yml                   # optional service fragments
     ├── docker-compose.ghcr-*.yml   # Legacy monolith compose (compatibility)

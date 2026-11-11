@@ -397,6 +397,8 @@ _To be filled in (Task 18)._ At minimum:
 - Guid and string tie ordering
 - Postgres 18 or later: 17 rejects `LIKE` and `strpos` on the case-insensitive collation (#26). The initializer refuses an older server at startup (#43)
 - known flaky tests, the same on both providers (#53, #54), and two stream defects found while explaining them: the duplicate final message of #53 (latent, both providers, not fixed) and #55's stray streaming row (fixed on Postgres only; SQL Server with `READ_COMMITTED_SNAPSHOT` on keeps it)
+- the launchers' Postgres path (Task 16: `--db postgres` on `start_*.sh`, `start_windows.cmd`, `installer/guideants.*` and `stop_guideants.*`) hasn't run end to end yet. It was checked with `docker compose config` on every stack file, a standalone run of the `postgres` service (healthy, PostgreSQL 18.6, pgvector 0.8.7, data kept across a container recreate), `bash -n`, and the shared bash wizard run with HEAD and the new code side by side. The `.cmd`/PowerShell launchers were only reviewed by reading. The manual test (start with `--db postgres`, register, `docker ps` shows `guideants-postgres` and no `mssql-express`, stop) is pending
+- `docker-compose.postgres.yml` (used by `start_*.sh` / `start_windows.cmd`) needs Docker Compose 2.24.4 or later because it replaces `depends_on` with `!override`. Those launchers check the version, and they refuse `--backend slim` with Postgres because the slim stack's UI image bundles SQL Server. The installer's fragment layout (`compose/postgres-separate.yml`) has neither limit
 
 ## Speed
 

@@ -250,6 +250,16 @@ So local API URL = `http://localhost:5106` (which is what the client `.env.devel
 - **SQL Server 2025 Express** with **Full-Text Search** enabled.
 - Easiest path: `docker compose -f docker/docker-compose.mssql.yml up -d` (binds host port 1434 → container 1433) and let the API run migrations on first boot.
 
+### Postgres instead of SQL Server
+
+SQL Server stays the default. To run on Postgres, use **PostgreSQL 18 or later with pgvector** (the initializer refuses an older server). Switching provider points the install at a different, empty database; nothing is migrated.
+
+- **Setting:** `Database:Provider` = `SqlServer` (the default when it's missing) or `Postgres`, next to a Postgres `ConnectionStrings:DefaultConnection` (Npgsql format), for example `Host=localhost;Port=5433;Database=guideants-dev;Username=guideants;Password=YourStrong!Passw0rd`. The API creates the database if it's missing (it connects to the `postgres` maintenance database, so the user needs `CREATEDB`) and runs the Postgres migrations on first boot.
+- **API on the host:** `docker compose -f docker/docker-compose.pgsql.yml up -d` starts Postgres only (`pgvector/pgvector:0.8.7-pg18`, host port **5433**), matching the defaults above and the design-time factory used by `dotnet ef`.
+- **Docker stack:** add `docker/docker-compose.postgres.yml` after the stack file (`docker compose -f docker-compose.ghcr-cpu.yml -f docker-compose.postgres.yml --env-file .env up -d`, and the same `-f` list for `down`). It adds a `postgres` service (container `guideants-postgres`, volume `postgres_data` at `/var/lib/postgresql`, host port 5433), keeps `mssql-express` from starting (it moves behind the `sqlserver` profile), and sets `Database__Provider=Postgres` plus the Postgres connection string on `guideants-webapi-ui`. It needs **Docker Compose 2.24.4+** (it replaces `depends_on` with `!override`) and works with every stack file that defines `mssql-express`, not the `slim` ones (their UI image bundles SQL Server). `installer/docker/docker-compose.postgres.yml` is the same file for the `installer/docker` layout.
+- **Launchers:** `--db sqlserver|postgres`, or `GA_DB_PROVIDER` when the flag is absent. `start_macos.sh` / `start_linux.sh` / `start_windows.cmd` add the override above (and refuse `--backend slim`). `installer/guideants.sh` / `guideants.cmd` swap `compose/core-*.yml` for `compose/postgres-separate.yml`, save the choice in `.installer_state.env` (so later runs and `stop_guideants.*` use it), and accept `--db` again to switch.
+- **Compose env:** `GA_POSTGRES_IMAGE` (default `pgvector/pgvector:0.8.7-pg18`), `GA_POSTGRES_PASSWORD` (default `YourStrong!Passw0rd`; avoid `;` because it ends up in the connection string), and the existing `GA_DB_NAME`.
+
 ### Bootstrap requirements
 
 On first boot the API seeds `Resources/bootstrap/` data (guides, assistants, runtime-profile **install templates**). Chat behavior at inference is read from catalog `Models` rows after install. Seeding is idempotent. See [model-chat-behavior-contract.md](model-chat-behavior-contract.md).
@@ -345,6 +355,7 @@ For local debugging with API on the host and services in Docker, use `docker/.en
 |---|---|
 | `5107` | `guideants-webapi-ui` (UI + API) |
 | `1434` | `mssql-express` (host) → `1433` (container) |
+| `5433` | `postgres` (host) → `5432` (container), only with `docker-compose.postgres.yml` |
 | `8110` | `guideants-ai` (full variants: llama-cpp, ASR, TTS, SD, EMB, media, sandbox via nginx; slim variant: sandbox/media only) |
 | `5001` | `docling-serve` |
 | `8082` | `documentserver` (loopback-only) |
@@ -375,7 +386,7 @@ The launcher auto-picks `cuda13`, `rocm`, `vulkan` (Windows NVIDIA below R580), 
 
 1. .NET 8 SDK on host.
 2. PowerShell 7+ (PowerShell Core — works on Windows, macOS, and Linux).
-3. Start dependencies only: `docker compose -f docker/docker-compose.mssql.yml up -d` (DB) and the AI services compose for whichever backend you need.
+3. Start dependencies only: `docker compose -f docker/docker-compose.mssql.yml up -d` (DB), or `docker compose -f docker/docker-compose.pgsql.yml up -d` for Postgres (see [Postgres instead of SQL Server](#postgres-instead-of-sql-server)), and the AI services compose for whichever backend you need.
 4. Create `appsettings.Development.json` from the example.
    - Ensure:
      - `DocumentServer:PublicUrl = http://localhost:8082`

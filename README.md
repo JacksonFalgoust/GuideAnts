@@ -92,6 +92,7 @@ Start with **slim** if you mainly use cloud providers and want a smaller pull; r
 | `--yes` / `-y` | Non-interactive defaults (bundled DB, slim AI, all optionals) |
 | `--backend <name>` | Skip the AI backend prompt (`none`, `slim`, `cpu`, `cuda13`, `rocm`, `vulkan`) |
 | `--reconfigure` | Change AI backend / optionals on an existing install |
+| `--db sqlserver\|postgres` | Database provider (default `sqlserver`, or `GA_DB_PROVIDER`). `postgres` runs Postgres 18 + pgvector in its own container; switching starts on an empty database. See [developer-config-guide.md](docs/developer-config-guide.md#postgres-instead-of-sql-server). |
 | `--doctor` | Run checks only; print the compose command that would be used |
 | `--mount <path>` | Mount a host folder into a project after login |
 
