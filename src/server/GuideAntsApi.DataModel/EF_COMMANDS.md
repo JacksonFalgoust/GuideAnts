@@ -17,7 +17,8 @@ migrations:
   - `migrations-in-sync` runs `has-pending-model-changes` for each provider and fails on a model change without a
     migration.
   - `database-parity` (`GuideAntsApi.DatabaseParity.Tests`) migrates both databases from empty and fails if their
-    tables, columns, indexes, foreign keys, views or seeded rows differ.
+    tables, columns, indexes, foreign keys or seeded rows differ. For views it compares only each view's column shape
+    (column names and types), not the view's query: a change to a view's logic on one side isn't caught.
 
 Run these from `src/server`. The design-time factory takes the provider from the argument after `--`. Without one, it
 uses the `Database:Provider` / `Database__Provider` environment variable, and then SQL Server. If your shell sets
