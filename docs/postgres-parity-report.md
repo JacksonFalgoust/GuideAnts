@@ -1,21 +1,241 @@
 # Postgres parity report
 
-Can GuideAnts run on Postgres and behave the way it does on SQL Server? This report collects the evidence. It is
-written for the supervisor and is filled in task by task, following
-[the plan](superpowers/plans/2026-11-03-postgres-db-switch.md).
+Can GuideAnts run on Postgres and behave the way it does on SQL Server? This report gives the evidence for the
+supervisor deciding whether to adopt Postgres, and for the developers who would carry both databases. It is the final
+form of the report built up while carrying out [the plan](superpowers/plans/2026-11-03-postgres-db-switch.md) for
+[the design](superpowers/specs/2026-11-03-postgres-db-switch-design.md).
 
-Status: **draft**. Rows marked `Open` are a working list, not findings. They get resolved (`Fixed` or `Accepted`) by
-the task named in the row.
+- **Branch:** `feature/postgres-db-switch`. Nothing on it has been pushed since the branch was created, so nothing has
+  run on GitHub yet.
+- **Code under test:** every test result below comes from local runs on the code at `5c8c928a`, the last commit that
+  changed `src/server`. Later commits changed only CI, Docker, the launchers, the speed harness and documentation.
+- **Machine:** Apple Silicon. Postgres ran natively; SQL Server's amd64-only image ran emulated, which makes it slow
+  but doesn't change results.
+
+Contents: [Verdict](#verdict) · [Decisions needed from you](#decisions-needed-from-you) · [Evidence](#evidence) ·
+[Differences](#differences) · [Intentional differences](#intentional-differences) ·
+[SQL Server-specific code inventory](#sql-server-specific-code-inventory) · [Ongoing cost](#ongoing-cost) ·
+[Limits](#limits) · [Speed](#speed) · [Suggested CLAUDE.md additions](#suggested-claudemd-additions)
 
 ## Verdict
 
-_To be written from the evidence (Task 18)._
+**GuideAnts works on Postgres and behaves like it does on SQL Server everywhere the tests look, and search on
+Postgres is functionally as good. But the proof isn't finished: CI has never run on GitHub, and the speed comparison
+has no numbers yet.** On this evidence Postgres is a working, opt-in second database. The evidence isn't yet enough to
+decide to switch.
+
+The design asked for four kinds of proof:
+
+| Part of the proof | Status | In short |
+|---|---|---|
+| 1. The whole existing test suite passes on both databases, locally and in CI | **Locally: yes. In CI: not run yet.** | Postgres: 364 passed, 0 failed, 2 skipped (of 366). SQL Server: 355 passed, 9 skipped and 1 failure, a known flaky test that passed on rerun (of 365). The CI workflow for both is written but has never run on GitHub. |
+| 2. Search measured against the production code | **Yes: SWITCHABLE, with limits** | The app's own searchers on both databases, 152 query/scope pairs. All five conditions pass. The exact-phrase group sits exactly at the 80% same-#1 threshold. |
+| 3. Speed compared under the same conditions | **No numbers yet** | The timing harness is built and runs end to end. A valid run needs an x86-64 machine, which means GitHub CI or a Linux box. |
+| 4. A written log of every difference | **Yes** (this document) | 56 differences: 29 Fixed, 22 Accepted, 5 Same. None is left open. |
+
+**What is proven:**
+- **The app runs on Postgres end to end in the integration suite.** That covers sign-in and registration, projects,
+  notebooks, files, conversations and streaming, background jobs, usage reports, search, settings and the System
+  Guide. Every integration test that runs on SQL Server also runs on Postgres. The one exception is the SQL
+  Server-only MARS test, and #15 explains why it has no Postgres counterpart.
+- **Where the two databases' defaults differ, Postgres was made to match SQL Server.** That covers case-insensitive
+  text, where NULLs sort, timestamp precision, row versions, NUL characters, foreign-key timing, locking, error
+  detection and more. Each fix has a named test, and each difference that stays has a stated reason
+  ([Differences](#differences)).
+- **The two schemas stay in step.** Tests compare the freshly migrated databases: tables, columns, indexes, foreign
+  keys, views and seeded rows. CI is set up to fail when either side has a model change without a migration.
+- **Search is switchable.** The `C#` blocker that made the earlier spike "not switchable" is fixed.
+- **SQL Server behaves as before.** Its statements are unchanged. That was checked by comparing the emitted SQL, the
+  options or the statement text before and after, depending on the change. There are two small, deliberate
+  exceptions, and users see neither:
+  - `TryClaimAsync(null)` now works instead of throwing. No production caller passes `null` (#21).
+  - The job-claim log line's structured properties are now strings. The rendered message is identical.
+
+**What is not proven:**
+- **CI on GitHub.** The new jobs have never run on a runner: both integration legs, the parity tests and the migration
+  check. The flaky-test retry script was checked only against local test result files.
+- **Speed.** It is still unknown whether Postgres is faster or slower. There are smoke-test numbers, but they are
+  invalid (SQL Server emulated, tiny data) and are not reported.
+- **The launchers.** `--db postgres` has never been run end to end, and the Windows launchers were only reviewed by
+  reading.
+- **Real-world use.** The evidence comes from the tests' own data, one search corpus of 38 queries and, once it runs,
+  one synthetic speed data set. Postgres has not been run under real users. Moving existing SQL Server data was out
+  of scope.
+- **A human review of search.** Claude classified the full-text differences, as the user asked. No person has checked
+  them line by line.
+- **Some concurrency claims.** These were reasoned from the code, not run: the later failure points under
+  concurrency (#25), the retry limits (#42), the unknown-commit case (#51) and the user impact of #55.
+
+**How to read this for a decision:**
+- **Technically, Postgres is a viable second database.** No blocker was found, and every difference is fixed or
+  accepted with a stated reason.
+- **Before choosing to switch, finish the proof:**
+  1. Push and get CI green on both databases.
+  2. Get the x86 speed numbers and read them with their limits.
+  3. Run the manual launcher test.
+  4. Decide row #55 for SQL Server.
+
+  All four are listed below.
+- **Then weigh the ongoing cost.** Every schema change needs two migrations, CI gets extra jobs, and provider-specific
+  code lives in about 18 places ([Ongoing cost](#ongoing-cost)). Weigh that against what Postgres would bring. This
+  report doesn't assess the business reasons for switching, such as hosting options or licence costs.
+- **If Postgres is adopted, it can stay opt-in.** SQL Server remains the default until the speed numbers and some
+  real use on Postgres are in.
+
+## Decisions needed from you
+
+1. **Fix the Stop race on SQL Server too? (row #55)**
+   - **The problem:** a user presses Stop at the moment the AI worker saves a message. An empty assistant message can
+     be left marked "still streaming". The chat view hides it, but it goes into the next turn's history as an
+     assistant message with no content, and some model providers may reject that request. Anthropic is one example.
+     This was reasoned from the code, not seen end to end.
+   - **Where it's fixed:** on Postgres only, because the plan forbids changing the statements SQL Server receives.
+   - **Where SQL Server has the same race:** whenever the database has `READ_COMMITTED_SNAPSHOT` on.
+     - **Where it's on:** the integration-test database, because EF Core turns it on when it creates a database. The
+       same goes for a database created by `dotnet ef database update`, and Azure SQL Database has it on by default.
+     - **Default Docker and launcher installs:** their database is created by the app's own initializer, which leaves
+       it off. The speed harness's database, created that way on the same image, reports it off. With it off, the
+       window is narrower but not closed (reasoned, not run).
+     - **A correction:** earlier task notes said the SQL Server image turns it on by default. Checking the code showed
+       that EF Core does it, not the image.
+   - **Options:** leave SQL Server as it is, or apply the same one-statement fix to SQL Server in a separate change.
+   - **To check an install:** `SELECT is_read_committed_snapshot_on FROM sys.databases WHERE name = DB_NAME();`
+2. **Push the branch and run CI.**
+   - **Status:** the branch is more than 110 commits ahead of the fork's `main` (9 of them are the upstream commits it
+     was rebased onto), and none of its work has been pushed. The first GitHub run may show problems that the local
+     runs didn't.
+   - **After it's green:** make branch protection require `server-integration-test (SqlServer)`,
+     `server-integration-test (Postgres)`, `database-parity` and `migrations-in-sync`.
+   - **The speed job:** it runs only when started by hand (`workflow_dispatch`). GitHub offers "Run workflow" only
+     for a workflow whose file, with that trigger, is on the default branch. So either get the workflow change onto
+     `main` first, or run the harness by hand on an x86-64 Linux machine ([Speed](#speed)).
+   - **Note:** a manual dispatch also runs every other job in the workflow.
+3. **Rescale the Postgres search text scores? (row #49)**
+   - **Today:** they are kept as they are. Postgres text scores are about 5 to 8 times SQL Server's (median 5.68), so
+     a text match moves a result up more on Postgres.
+   - **What a rescale would do:** dividing by 5.68 would bring the order closer to SQL Server's (top-5 overlap 0.995,
+     same #1 in 99.3% of pairs). But today's order finds the exact searched phrase more often: in the top 5 for 45 of
+     51 pairs, against 41 for SQL Server and 41 after rescaling.
+   - **The change:** one line in `PostgresHybridSearcher`, plus the parity diagnostics, if you prefer SQL Server's
+     order.
+4. **Run the manual launcher test for `--db postgres`.** It wasn't run because it would collide with the local stack
+   that was running (port 5107 and fixed container names). Stop your current stack first. It uses the installer
+   layout, so from the repository run `./installer/stop_guideants.sh`.
+
+   Repository-root launcher:
+   ```bash
+   ./start_macos.sh --db postgres            # or: GA_DB_PROVIDER=postgres ./start_macos.sh
+   # expect "Database: Postgres (docker/docker-compose.postgres.yml)"; http://localhost:5107/ loads; register works
+   docker ps --format '{{.Names}}' | grep -E 'guideants-postgres|mssql-express'   # guideants-postgres only
+   cd docker && docker compose -f docker-compose.ghcr-cpu.yml -f docker-compose.postgres.yml --env-file .env down
+   ```
+   Use the compose file the launcher logged. `start_*.sh` has no stop script. `installer/stop_guideants.sh` reads
+   `installer/.installer_state.env`, not the repository-root state, so it doesn't pair with `start_macos.sh`.
+
+   Installer launcher:
+   ```bash
+   ./installer/guideants.sh --db postgres    # warns that the provider changed from your saved sqlserver; layout fragments show postgres-separate.yml
+   docker ps --format '{{.Names}}'           # guideants-postgres, no mssql-express
+   ./installer/stop_guideants.sh             # uses the saved DB_PROVIDER=postgres; `--db postgres` gives the same result
+   ./installer/guideants.sh --db sqlserver   # back to your existing SQL Server data
+   ```
+   On Windows, run `start_windows.cmd --db postgres`, `installer\guideants.cmd --db postgres` and
+   `installer\stop_guideants.cmd`, with the same expectations.
+5. **Keep the 4 `C#` (Q33) `blocker` entries in `samples/hybrid-search-parity/known-differences.json`?**
+   - **Today:** they are kept, scoped with `candidate: postgres` to the earlier demo port's comparison. The
+     production verdict counts 0 blockers.
+   - **Why they stay:** deleting them would make the port's own comparison report Q33 as unreviewed.
+   - **The cost of keeping them:** anyone reading the file sees "blocker" in it.
+6. **Upstreaming, if this goes to the upstream repository:**
+   - **The iCloud warning** ([Limits](#limits)) is about this machine, not for upstream readers. Drop it there.
+   - **The branch history:** this branch merged `feature/postgres-hybrid-search-demo` (merge commit `9a171bb9`). That
+     branch's last 50 commits were never pushed, so the history here includes the demo spike's sample commits.
+     Decide whether to keep that history or tidy it before proposing upstream.
+   - **The two samples:** decide whether `samples/hybrid-search-parity` and `samples/database-speed` should go
+     upstream, or stay as evidence in the fork.
 
 ## Evidence
 
-_To be completed (Task 18): the green CI runs for both providers and the speed summary._
+### Test results per provider
 
-### Production search comparison (Task 13)
+These are the latest runs, all local. The Run column names the plan task and the commit. No commit after them
+changed `src/server`.
+
+| Suite | SQL Server | Postgres | Run |
+|---|---|---|---|
+| Integration tests (`GuideAntsApi.IntegrationTests`), full | 365 tests: **355 passed, 1 failed, 9 skipped**. The failure is the known flaky #53, and its class (36 tests) passed on rerun | 366 tests: **364 passed, 0 failed, 2 skipped** | Task 14: SQL Server's final full run (`dfca61c1`); Postgres after the fix round (`5c8c928a`) |
+| Integration tests, the conversation and `DatabaseBehavior` classes after the #55 fix (150 tests) | 140 passed, 1 failed (the same known flaky test, which passed on rerun), 9 skipped | 148 passed, 0 failed, 2 skipped | Task 14 fix round (`5c8c928a`) |
+| Schema and seed parity (`GuideAntsApi.DatabaseParity.Tests`; each test starts both databases) | 16 passed (one suite covering both databases) | | Task 14 fix round |
+| `dotnet ef migrations has-pending-model-changes` | "No changes" | "No changes" | Task 14 |
+| Unit tests (`GuideAntsApi.Tests`), provider-neutral, including the SQL-shape tests of the Postgres code, which need no database | 2,825 passed, 1 skipped | | Task 14 fix round |
+| Search comparison sample (`samples/hybrid-search-parity`), including integration on both databases | 300 passed | | Task 13 fix round |
+| Speed harness unit tests (`samples/database-speed`) | 42 passed | | Task 17 |
+| CI retry script (`.github/scripts/test_flaky_retry.py`) | 24 passed | | Task 15 |
+
+- **What's skipped.**
+  - SQL Server's 9 are the llama test (it needs a llama server, so it is skipped on both databases) and 8
+    Postgres-only tests, which report Inconclusive on SQL Server.
+  - Postgres's 2 are the llama test and the SQL Server-only MARS test (#15).
+  - The fix round added one more Postgres-only test (`Stop_fence_clears_a_streaming_row_the_worker_commits_while_the_fence_waits`),
+    so a full SQL Server run would now skip 10. A full SQL Server run hasn't been done since; the 150-test row covers
+    the classes that changed.
+- **Not affected by this work.**
+  - `ScriptExecutionAgent.Tests` references neither the data model nor the API. Locally 6 of its tests fail only
+    because `pwsh` isn't installed on this Mac (Task 10). CI runs it as before.
+  - No commit of this work changes `src/client`. Its changes on the branch come from upstream commits, so the client
+    tests weren't rerun.
+- **Clean logs.**
+  - No error that looks like MARS ("A command is already in progress", #15) appeared in any Postgres run.
+  - The only database errors logged by passing Postgres tests are expected ones:
+    - the 40001s of the two concurrency tests (#42, 6 per run);
+    - in one run, the handled 23505 of #56.
+
+**Known flaky tests.** They show the same race on both databases, and they pass on rerun. The causes are in #53 and
+#54. Here is how often they failed in the 12 full runs of Task 14. 7 of the Postgres runs and 3 of the SQL Server
+runs carried a temporary dump of the conversation's rows at the failing assertion; the dump wasn't committed, and it
+reads after the race, so it doesn't change it.
+
+| Test | Postgres, 8 full runs | SQL Server, 4 full runs | Rerun of its class |
+|---|---|---|---|
+| `SendMessageStream_Cancel_finalizes_partial_message_marks_turn_cancelled_and_prunes_incomplete_tool_calls` (#53) | 3 failed | 3 failed | passed: 3 of 3 on Postgres, 1 of 1 on SQL Server (36 tests each) |
+| `SendMessageStream_Cancel_during_thinking_persists_thinking_without_zero_token_usage` (#53) | 3 failed | 0 failed | passed: same reruns |
+| `RecoverStaleTurns_terminalizes_orphaned_streaming_turn_on_sql` (#54) | 0 failed | 0 failed (it failed once, in Task 7's SQL Server run) | passed: 3 of 3 on Postgres (3 tests each) |
+
+No other test failed in any of the 12 full runs. The cancel tests were already known to be flaky upstream before this
+work.
+
+**The CI retry.** CI expects these failures, so `.github/scripts/flaky_retry.py` (tests in `test_flaky_retry.py`)
+handles them:
+- When the full integration run fails, the script checks the results. It accepts only one case: every non-passing
+  result (anything other than Passed or NotExecuted) is one of the three tests above, and the run's own counters agree
+  with that list.
+- In that case it reruns exactly those tests, once. They must run and pass.
+- Any other failure, or a second failure, fails the job.
+
+**How the Postgres suite got here.** Each row is the Postgres integration run after a task.
+
+| After | Change | Tests | Passed | Failed | Skipped | What still failed |
+|---|---|---|---|---|---|---|
+| Task 6 | the integration tests can target Postgres | 271 | 6 | 264 | 1 | everything that starts the host: it couldn't load its settings from Postgres (#16) |
+| Task 11 | settings loader and usage buckets (#16, #22) | 276 | 215 | 59 | 2 | registration and admin lock, #17 (13); FK detection, #18 (3); test cleanup blocked by #19 (36); storage runners, #20 (7) |
+| Task 6b | deferred FK checks (#19, #23 to #25) | 296 | 271 | 23 | 2 | #17, #18, #20 |
+| Task 7 | case-insensitive text (#26 to #29) | 307 | 282 | 23 | 2 | #17, #18, #20 |
+| Task 8 | NULL ordering (#30) | 313 | 287 | 24 | 2 | #17, #18, #20, plus 1 flaky (#53) |
+| Task 10 | job claim, application lock, serializable retry, FK detection, version guard (#17, #18, #21, #41 to #43) | 345 | 334 | 9 | 2 | #20 (7), plus 2 flaky (#53) |
+| Task 12 | Postgres hybrid search (#44 to #50) | 357 | 347 | 8 | 2 | #20 (7), plus 1 flaky (#53) |
+| Task 14 | storage runners, retry tracker, constraint checks (#20, #51, #56) | 365 | 363 | 0 | 2 | none |
+| Task 14 fix round | Stop fence (#55) | 366 | 364 | 0 | 2 | none |
+
+- **The SQL Server runs over the same period:**
+  - Task 10: 338 passed, 1 failed (#53), 6 skipped of 345.
+  - Task 12: 350 passed, 0 failed, 7 skipped of 357.
+  - Task 14: 355 passed, 1 failed (#53), 9 skipped of 365.
+- **The early working lists:** the 264 failing tests by class and the four failure groups are in this file's history
+  (`git show 99f97916:docs/postgres-parity-report.md`).
+- **The diagnostic run:** between Tasks 6 and 11, a throwaway patch let the host start on Postgres. That run gave 210
+  passed, 59 failed and 2 skipped, which predicted the Task 11 row exactly.
+
+### Search: the production searchers compared
 
 **Verdict: SWITCHABLE** ([`samples/hybrid-search-parity/RESULTS-production.md`](../samples/hybrid-search-parity/RESULTS-production.md)).
 - **What ran.** The hybrid search parity harness ran GuideAnts' own searchers: `HybridSearcher` on SQL Server and
@@ -25,6 +245,9 @@ _To be completed (Task 18): the green CI runs for both providers and the speed s
   152 query/scope pairs.
 - **Provenance.** The report records the commit of the production code under test (the `src/server` projects the
   harness builds from) and flags uncommitted changes there.
+- **This run.** It was generated on 2026-11-10 from a clean tree at `ae77f06f`. The production code under test was
+  last changed in `1bbaee47`. The only later change to that code, `4cf46545`, lets a context opt out of the retry
+  strategy, and its default keeps the old behavior. So the searchers are unchanged since the run.
 
 All five conditions pass in aggregate:
 
@@ -71,7 +294,53 @@ Limits of this evidence:
 - **One corpus, 38 queries.** It says nothing about other data or query mixes. SQL Server's `CONTAINSTABLE` ranks also
   moved slightly between two seedings of the same data (Q33), with identical verdict metrics.
 
-To reproduce it, from `samples/hybrid-search-parity`:
+### Speed comparison: numbers pending
+
+**No speed numbers yet.** The harness (`samples/database-speed`) is built, unit-tested, and has run every operation
+end to end on both databases. A valid comparison needs both the harness and Docker on x86-64, so the run has to
+happen on GitHub CI or an x86-64 Linux machine. That needs a push, or someone with such a machine; see
+[Decisions needed from you](#decisions-needed-from-you), item 2. No local numbers are reported, because SQL Server ran
+emulated here. [Speed](#speed) says how to run it, what it times and what to watch for.
+
+### Checked by running vs. only by reading
+
+| Item | How it was checked | Still open |
+|---|---|---|
+| Integration, unit and parity tests | run locally, on both databases | runs on GitHub CI |
+| CI workflow (`.github/workflows/client-test.yml`) | `actionlint` passes; the retry script has 24 tests on made-up result files, and it was also run on 5 real local result files | has never run on a GitHub runner |
+| Bash launchers (`start_macos.sh`, `start_linux.sh`, `installer/guideants.sh`, `installer/stop_guideants.sh`) | `bash -n` with bash 3.2 and 5.3, shellcheck, and `docker compose config` on all 18 stack files with and without the Postgres override. The installer's shared wizard script was run next to the old version on the same inputs. The `postgres` service also ran on its own: it was healthy, gave PostgreSQL 18.6 with pgvector 0.8.7, and kept its data across a recreate | `--db postgres` end to end (decision 4) |
+| Windows launchers (`start_windows.cmd`, `installer/guideants.cmd`, `installer/stop_guideants.cmd` and their PowerShell scripts) | read only; there's no `pwsh` on this machine | any run |
+| Docker Compose `!override` in `docker-compose.postgres.yml` | behavior checked on Compose v5.1.4 | the 2.24.4 minimum comes from Compose's release history, not from a run |
+| Speed harness | 42 unit tests, smoke runs on both databases, and one local full-volume seed and job drain (not timing evidence) | a full x86-64 run |
+| Search comparison | the full comparison on both databases, from a clean tree | its own limits, listed above |
+| Claims marked "reasoned, not run" or "inferred" in the [Differences](#differences) (#25, #42, #51, #53, #55) | reading the code | tests that exercise them |
+
+### How to reproduce
+
+From the repository root:
+
+```bash
+# Integration tests on SQL Server (the default). Locally, use the GHCR image (amd64 only, emulated on Apple Silicon).
+GA_INTEGRATION_TEST_MSSQL_IMAGE=ghcr.io/elumenotion/mssql2025-express-fts:main \
+  dotnet test src/server/GuideAntsApi.IntegrationTests/GuideAntsApi.IntegrationTests.csproj
+
+# Integration tests on Postgres. The image can be changed with GA_INTEGRATION_TEST_POSTGRES_IMAGE (default pgvector/pgvector:0.8.7-pg18).
+GA_INTEGRATION_TEST_DB_PROVIDER=Postgres \
+  dotnet test src/server/GuideAntsApi.IntegrationTests/GuideAntsApi.IntegrationTests.csproj
+
+# Schema and seed parity (starts both databases).
+GA_INTEGRATION_TEST_MSSQL_IMAGE=ghcr.io/elumenotion/mssql2025-express-fts:main \
+  dotnet test src/server/GuideAntsApi.DatabaseParity.Tests/GuideAntsApi.DatabaseParity.Tests.csproj
+```
+
+From `src/server`, check that both providers' migrations match the model:
+
+```bash
+dotnet ef migrations has-pending-model-changes --project GuideAntsApi.DataModel/GuideAntsApi.DataModel.csproj --startup-project GuideAntsApi/GuideAntsApi.csproj
+dotnet ef migrations has-pending-model-changes --project GuideAntsApi.DataModel.Postgres/GuideAntsApi.DataModel.Postgres.csproj --startup-project GuideAntsApi/GuideAntsApi.csproj -- --provider Postgres
+```
+
+To rerun the search comparison, from `samples/hybrid-search-parity`:
 
 ```bash
 docker compose up -d
@@ -80,25 +349,20 @@ dotnet run --project src/Parity.Cli -- seed --profile prod-postgres
 dotnet run --project src/Parity.Cli -- compare --baseline prod-sqlserver --candidate prod-postgres --out RESULTS-production.md   # exit code 0
 ```
 
-To run the integration suite on each provider, from the repository root:
-
-```bash
-# SQL Server (the default). Locally, use the GHCR image (amd64 only, emulated on Apple Silicon).
-GA_INTEGRATION_TEST_MSSQL_IMAGE=ghcr.io/elumenotion/mssql2025-express-fts:main \
-  dotnet test src/server/GuideAntsApi.IntegrationTests/GuideAntsApi.IntegrationTests.csproj
-
-# Postgres. The image can be changed with GA_INTEGRATION_TEST_POSTGRES_IMAGE (default pgvector/pgvector:0.8.7-pg18).
-GA_INTEGRATION_TEST_DB_PROVIDER=Postgres \
-  dotnet test src/server/GuideAntsApi.IntegrationTests/GuideAntsApi.IntegrationTests.csproj
-```
-
 ## Differences
 
-These are the behavioral differences found between the two providers. Each resolution is one of:
-- `Fixed`: Postgres now behaves like SQL Server.
+These are the behavioral differences found between the two databases, and what was done about each. Each row has
+one of three resolutions:
+- `Fixed`: Postgres now behaves like SQL Server. In #55, and in the `Accepted` #51, the fix applies to Postgres
+  only. SQL Server keeps a defect it already had, because this work doesn't change SQL Server.
 - `Accepted`: the difference stays, and the row says why that is safe.
-- `Same`: checked because a difference was suspected; both providers already behave the same, and the row records the proof.
-- `Open`: still being worked on.
+- `Same`: checked because a difference was suspected; both databases already behave the same, and the row records
+  the proof.
+
+That gives 29 `Fixed`, 22 `Accepted` and 5 `Same`. **No row is open.** The row numbers are stable, because code
+comments and the CI workflow refer to them (CI's retry names rows 53 and 54). The last column names each proving test;
+unless a row says otherwise, it runs on both databases. "Inconclusive on SQL Server" (or on Postgres) means the test
+runs on one database only.
 
 | ID | Area | SQL Server behavior | Postgres default | Resolution | Proving test |
 |---|---|---|---|---|---|
@@ -154,258 +418,270 @@ These are the behavioral differences found between the two providers. Each resol
 | 50 | The full-text index on `DocumentChunks(Content)` in schema parity | created by raw SQL in the baseline (`DocumentChunks_Catalog`, key `PK_DocumentChunks`). It lives in the full-text catalog, outside `sys.columns` and `sys.indexes`, so the schema snapshot doesn't see it | the counterpart is a generated `tsvector` column `"ContentTsv"` and the GIN index `IX_DocumentChunks_ContentTsv`, neither in the model (`has-pending-model-changes` reports no changes for either provider). No vector index on either provider: both searches scan the scoped chunks | **Accepted**: the snapshot comparisons (`Same_columns`, `Same_indexes`) leave out the documented Postgres-only column and index, and assert they exist. A separate test checks both sides directly: the SQL Server full-text index and its catalog, and the Postgres generated expression, GIN index and `IMMUTABLE` function. The migration's `Down` removes everything and `Up` reapplies | `Postgres_full_text_column_stands_in_for_the_sql_server_full_text_index`, `Postgres_full_text_migration_rolls_back_and_reapplies`, `Same_columns`, `Same_indexes` |
 | 51 | A transient error other than 40001 in the admin user mutations (`AdminUserService`) and in registration: a deadlock (40P01), a lock timeout (55P03) or a broken connection (08xxx), at `SaveChanges` or at the commit | the retrying strategy reruns the delegate after a transient `SqlException` (a deadlock 1205, for example) with the failed attempt's entities still tracked. This is unchanged and was already so before the Postgres work | after Task 10 the same: only 40001 cleared the tracker. After a failed commit, the retry of an admin mutation read back its own changed rows (identity resolution), found nothing to save and reported success with the old values still in the database (reproduced: `ChangeRoleAsync` returned Reader, the row stayed Admin) | **Accepted** (fixed on Postgres only): <br>- **Admin mutations:** on Postgres the delegate clears the change tracker before it rethrows any exception (`catch when (_db.Database.IsNpgsql())`), so every retry reads the committed rows. A non-transient error isn't retried and still fails the request. <br>- **Registration:** not affected, so unchanged. It reads only with `AsNoTracking` and adds new entities in each attempt; the failed attempt's entities were accepted by its successful `SaveChanges` and are never saved again. A transient error at `SaveChanges` is caught as a `DbUpdateException` and answers 409, on both providers, as before. <br>- **Which errors are retried:** Npgsql's strategy retries a `PostgresException` whose `IsTransient` is true (40001, 40P01, 55P03, 55006, 55000, the 08 connection codes including 08007 `TransactionResolutionUnknown`, 53xxx, 57P01/57P02/57P03/57P05, 58000/58030), an `NpgsqlException` caused by an I/O, socket or timeout error, and a `TimeoutException`. The admin catch clears the tracker for every exception, so it covers all of them. <br>- **Commit outcome unknown (same on both providers):** a connection lost during the commit can hide a commit that succeeded, and EF doesn't verify it before retrying. The retry then runs on the committed change: an admin mutation runs again on the already-changed rows (an approval or a role change sets the same values again), and a registration answers 409 "An account with this email already exists." for the account it just created. <br>- **SQL Server:** unchanged, so the dirty retry of the admin mutations after a transient error at commit remains possible there (out of scope: no SQL Server behavior changes) | `Admin_mutation_retried_after_a_transient_commit_failure_persists_on_postgres` (fails without the fix), `Registration_retried_after_a_transient_commit_failure_creates_one_user_on_postgres` (both Postgres-only, Inconclusive on SQL Server; they inject a transient 40P01 into the first commit), `Concurrent_admin_demotions_keep_one_admin` |
 | 52 | Settings bootstrap table check (`ApplicationSettingsService.BootstrapAsync`, `ApplicationSettingsTableExistsAsync`) | `SELECT CASE WHEN OBJECT_ID('dbo.ApplicationSettings', 'U') ...`; if the table is missing, the bootstrap seeds nothing | the check runs only when `IsSqlServer()`; every other provider is assumed to have the table, so on Postgres a missing table would fail the bootstrap's first query (42P01) instead of skipping it | **Accepted**: the table can't be missing when the bootstrap runs. Program migrates the database first, and the DB-backed settings loader, which Program adds before `Build()` and so runs before `BootstrapAsync`, already fails host startup loudly when the table is missing (#16). Found by the Task 14 search of production code; the SQL Server statement is unchanged | `Settings_loader_fails_loudly_when_the_application_settings_table_is_missing`, and every Postgres host start runs the bootstrap (for example `Sections_Schema_Readiness_ReturnOk`, `Models_FullCrudLifecycle`) |
-| 53 | Two cancel tests of `ConversationServiceIntegrationTests` fail now and then with "Sequence contains more than one element": there are two or more assistant rows after the cancel | `SendMessageStream_Cancel_finalizes_partial_message_marks_turn_cancelled_and_prunes_incomplete_tool_calls` failed in 3 of 4 full runs in Task 14 (always its prune half), and in the SQL Server runs of Tasks 6b, 8, 9, 10 and 11; `SendMessageStream_Cancel_during_thinking_persists_thinking_without_zero_token_usage` in 0 of 4, and never in the SQL Server runs of Tasks 6b to 14 | the same failure: the first test in 3 of 8 full runs in Task 14 (always its prune half); the second in 3 of 8 (both in 2 of them), and also in the Postgres runs of Tasks 8 and 10 | **Same**: known flaky tests, the same mechanism on both providers. The race is in the tests' timing against the engine; no SQL decides it. A dump of the conversation's rows at the failing assertion (temporary instrumentation, not committed) shows: <br>- **Prune half of the first test:** the fake provider's `ToolCallsCancelBeforeExecution` scenario cancels only the HTTP request, and an SSE disconnect doesn't stop the worker (by design, `SendMessageStream_SseDisconnect_keeps_worker_locked_until_explicit_cancel_and_reattach_observe`). The provider returns the same tool call on every round, so the worker keeps doing tool rounds until the test's cancel call lands. The test assumes it lands before the second round. Seen: 5 assistant rows in 20 ms on Postgres, 2 on SQL Server (each with the tool call, plus one tool row "ERROR: IntegrationTestTool is not a valid tool."). <br>- **The thinking test:** the fake streams 10 thinking words 10 ms apart, then the final text, and returns. The test disconnects at 120 ms and then asks the run registry to cancel. When the provider returns first, the final message is saved (row 2, "should not be persisted"), and then the cancellation wins in the engine's "provider returned after cancellation" path (`ConversationStreamEngine.cs:630`). `HandleCancellationAsync` gets the id of the *active* segment, which is null once the final message was saved, so it saves the run's last assistant message again as a new row (row 13, same text). In that timing the test's content check fails too. <br>- **The thinking test, observed on Postgres only so far:** same mechanism; the likely reason is speed (Postgres full runs take about 1 m 35 s, SQL Server's emulated image about 3 m 24 s). The 120 ms count from when the request is sent, so they include the request's setup (lock, turn and user message writes); slower setup leaves less of the 120 ms for the stream, so the cancel lands while the provider is still thinking. Not measured. Nothing in the race reads the database. <br>- **Engine defect behind the duplicate (both providers, latent, not fixed):** a cancellation that wins after the provider returned normally saves the final assistant message twice. No production path reaches it today. The worker's token is cancelled only by `ConversationStreamRunRegistry.RequestHardStop`, which the Stop endpoint uses and which makes `HandleCancellationAsync` skip this write (`IsHardStopRequested`), or by `RequestCancel`. `RequestCancel`'s only production caller is `ConversationTurnRecoveryService.RequestPendingCancellationsAsync` (`:82`), which delivers a `cancel_requested` marker on a turn still `streaming`. Only `ConversationPersistence.RequestTurnCancellationAsync` leaves that state, and it has no production caller; the Stop fence sets the turn `cancelled`. The test reaches it by calling `RequestCancel` directly. Not fixed here: it is provider-neutral stop logic outside the Postgres switch, and fixing it wouldn't make these tests deterministic | `SendMessageStream_Cancel_finalizes_partial_message_marks_turn_cancelled_and_prunes_incomplete_tool_calls`, `SendMessageStream_Cancel_during_thinking_persists_thinking_without_zero_token_usage`; frequencies and reruns: "After Task 14" below |
+| 53 | Two cancel tests of `ConversationServiceIntegrationTests` fail now and then with "Sequence contains more than one element": there are two or more assistant rows after the cancel | `SendMessageStream_Cancel_finalizes_partial_message_marks_turn_cancelled_and_prunes_incomplete_tool_calls` failed in 3 of 4 full runs in Task 14 (always its prune half), and in the SQL Server runs of Tasks 6b, 8, 9, 10 and 11; `SendMessageStream_Cancel_during_thinking_persists_thinking_without_zero_token_usage` in 0 of 4, and never in the SQL Server runs of Tasks 6b to 14 | the same failure: the first test in 3 of 8 full runs in Task 14 (always its prune half); the second in 3 of 8 (both in 2 of them), and also in the Postgres runs of Tasks 8 and 10 | **Same**: known flaky tests, the same mechanism on both providers. The race is in the tests' timing against the engine; no SQL decides it. A dump of the conversation's rows at the failing assertion (temporary instrumentation, not committed) shows: <br>- **Prune half of the first test:** the fake provider's `ToolCallsCancelBeforeExecution` scenario cancels only the HTTP request, and an SSE disconnect doesn't stop the worker (by design, `SendMessageStream_SseDisconnect_keeps_worker_locked_until_explicit_cancel_and_reattach_observe`). The provider returns the same tool call on every round, so the worker keeps doing tool rounds until the test's cancel call lands. The test assumes it lands before the second round. Seen: 5 assistant rows in 20 ms on Postgres, 2 on SQL Server (each with the tool call, plus one tool row "ERROR: IntegrationTestTool is not a valid tool."). <br>- **The thinking test:** the fake streams 10 thinking words 10 ms apart, then the final text, and returns. The test disconnects at 120 ms and then asks the run registry to cancel. When the provider returns first, the final message is saved (row 2, "should not be persisted"), and then the cancellation wins in the engine's "provider returned after cancellation" path (`ConversationStreamEngine.cs:630`). `HandleCancellationAsync` gets the id of the *active* segment, which is null once the final message was saved, so it saves the run's last assistant message again as a new row (row 13, same text). In that timing the test's content check fails too. <br>- **The thinking test, observed on Postgres only so far:** same mechanism; the likely reason is speed (Postgres full runs take about 1 m 35 s, SQL Server's emulated image about 3 m 24 s). The 120 ms count from when the request is sent, so they include the request's setup (lock, turn and user message writes); slower setup leaves less of the 120 ms for the stream, so the cancel lands while the provider is still thinking. Not measured. Nothing in the race reads the database. <br>- **Engine defect behind the duplicate (both providers, latent, not fixed):** a cancellation that wins after the provider returned normally saves the final assistant message twice. No production path reaches it today. The worker's token is cancelled only by `ConversationStreamRunRegistry.RequestHardStop`, which the Stop endpoint uses and which makes `HandleCancellationAsync` skip this write (`IsHardStopRequested`), or by `RequestCancel`. `RequestCancel`'s only production caller is `ConversationTurnRecoveryService.RequestPendingCancellationsAsync` (`:82`), which delivers a `cancel_requested` marker on a turn still `streaming`. Only `ConversationPersistence.RequestTurnCancellationAsync` leaves that state, and it has no production caller; the Stop fence sets the turn `cancelled`. The test reaches it by calling `RequestCancel` directly. Not fixed here: it is provider-neutral stop logic outside the Postgres switch, and fixing it wouldn't make these tests deterministic | `SendMessageStream_Cancel_finalizes_partial_message_marks_turn_cancelled_and_prunes_incomplete_tool_calls`, `SendMessageStream_Cancel_during_thinking_persists_thinking_without_zero_token_usage`; frequencies and reruns: the known flaky tests under [Test results per provider](#test-results-per-provider) |
 | 54 | `RecoverStaleTurns_terminalizes_orphaned_streaming_turn_on_sql` fails now and then with "Expected assistant.IsStreaming to be False, but found True" (its turn is already `interrupted`) | failed once, in the Task 7 SQL Server run; passed in the 4 SQL Server full runs of Task 14 | passed in the 8 Postgres full runs of Task 14 and in 3 reruns of its class | **Same** (the same mechanism on both providers; observed once, on SQL Server, never on Postgres so far): the race is between the test and the hosted `ConversationTurnRecoveryService`, which sweeps every second in every test host. The sweep claims a stale turn in one statement (`TryClaimStaleTurnAsync` sets `interrupted`) and clears the assistant's `IsStreaming` in a later `SaveChanges` (`ConversationTurnRecoveryService.cs:172-188`). When the hosted sweep claims the seeded turn first, the test's own sweep skips it and the test can read the message before the hosted sweep's second write. Not database-specific: the claim is a conditional update on both providers, and the window is the gap between two writes | `RecoverStaleTurns_terminalizes_orphaned_streaming_turn_on_sql`, `TryClaimStaleTurnAsync_only_one_concurrent_claim_succeeds` |
-| 55 | Stop's fence and a worker's assistant row written at the same moment (`ConversationPersistence.FenceTurnCancellationAsync`, `READ COMMITTED`: it reads the turn's streaming assistant rows, clears their `IsStreaming`, then updates the turn; the worker inserts a row and touches the turn in one transaction, fenced on `Status`/`ExecutionId`) | with `READ_COMMITTED_SNAPSHOT` on, the same race as Postgres below. The suite's SQL Server database has it on (`is_read_committed_snapshot_on = 1`, from the image's defaults; nothing in the repository sets it), and there the test below failed the same way before it was made Postgres-only, the fence waiting with `LCK_M_U` on the turn row in its `SaveChanges`. With it off, the fence's first read of the turn waits for the worker's uncommitted touch, so it sees the row (reasoned, not run). Unchanged by this fix | before the fix: the reads don't wait for the worker (MVCC); only the turn update in `SaveChanges` waits for the worker's row lock, and its predicates still match (the worker changes only `LastUpdated`). So a row the worker committed meanwhile stayed `IsStreaming = true` on a cancelled turn. Seen once in a full run (an empty streaming row after a prune-half failure of #53), and reproduced every time by the test below | **Fixed** on Postgres only (SQL Server keeps its race, as in #51): after `SaveChanges`, inside `if (shouldAdvanceFence && db.Database.IsNpgsql())`, the fence runs one `ExecuteUpdate` that clears `IsStreaming` on the turn's assistant rows, before the commit and while it holds the turn row. That statement reads a fresh snapshot, so it sees a row the worker committed while the fence waited; any later worker write fails its `Status`/`ExecutionId` predicates on the fenced turn and rolls back its insert. SQL Server sends the same statements as before. <br>- **Impact before the fix (reasoned, not verified end to end):** the stray row stayed for good, because recovery only sweeps turns still `streaming`. The message list (`ConversationQueryService.cs:79`, `ConversationMessageMapper.cs:131`) and the live preview (which needs a `streaming` turn) hide it. But the next turn's history loads every message (`ConversationService.cs:801-812`) and `ConversationHistoryBuilder` turns the empty row into an assistant `ChatMessage` with no content (`:676-677`), which providers such as Anthropic may reject. The same applies to SQL Server with `READ_COMMITTED_SNAPSHOT` on | `Stop_fence_clears_a_streaming_row_the_worker_commits_while_the_fence_waits` (`StopFenceBehaviorTests`, Postgres-only, Inconclusive on SQL Server; it holds the worker's transaction open, waits until the database reports the fence blocked by the worker's session, then commits the worker; it fails without the fix) |
+| 55 | Stop's fence and a worker's assistant row written at the same moment (`ConversationPersistence.FenceTurnCancellationAsync`, `READ COMMITTED`: it reads the turn's streaming assistant rows, clears their `IsStreaming`, then updates the turn; the worker inserts a row and touches the turn in one transaction, fenced on `Status`/`ExecutionId`) | with `READ_COMMITTED_SNAPSHOT` on, the same race as Postgres below. <br>- **Where it is on:** the suite's SQL Server database has it on (`is_read_committed_snapshot_on = 1`) because EF Core created that database. EF Core's SQL Server provider turns it on whenever it creates a database (`Migrate()`, `dotnet ef database update`): `Microsoft.EntityFrameworkCore.SqlServer` 9.0.11 sends `ALTER DATABASE ... SET READ_COMMITTED_SNAPSHOT ON`. Azure SQL Database also has it on by default. <br>- **The test:** there the test below failed the same way before it was made Postgres-only, with the fence waiting with `LCK_M_U` on the turn row in its `SaveChanges`. <br>- **Where it is off:** default Docker and launcher installs create their database through `SqlServerDatabaseInitializer`, a plain `CREATE DATABASE`, which leaves it off. The speed harness's database, created that way on the same `mssql2025-express-fts` image, reports `READ_COMMITTED_SNAPSHOT OFF`. With it off, the fence's first read of the turn waits for the worker's uncommitted touch, so it sees the row. A worker write that falls entirely between the fence's read and its turn update could still escape. Both are reasoned, not run. <br>- **This fix** doesn't change SQL Server. Whether to fix SQL Server too is an open decision ([Decisions needed from you](#decisions-needed-from-you), item 1). (Earlier notes said the image turns the setting on; it is EF Core) | before the fix: the reads don't wait for the worker (MVCC); only the turn update in `SaveChanges` waits for the worker's row lock, and its predicates still match (the worker changes only `LastUpdated`). So a row the worker committed meanwhile stayed `IsStreaming = true` on a cancelled turn. Seen once in a full run (an empty streaming row after a prune-half failure of #53), and reproduced every time by the test below | **Fixed** on Postgres only (SQL Server keeps its race, as in #51): after `SaveChanges`, inside `if (shouldAdvanceFence && db.Database.IsNpgsql())`, the fence runs one `ExecuteUpdate` that clears `IsStreaming` on the turn's assistant rows, before the commit and while it holds the turn row. That statement reads a fresh snapshot, so it sees a row the worker committed while the fence waited; any later worker write fails its `Status`/`ExecutionId` predicates on the fenced turn and rolls back its insert. SQL Server sends the same statements as before. <br>- **Impact before the fix (reasoned, not verified end to end):** the stray row stayed for good, because recovery only sweeps turns still `streaming`. The message list (`ConversationQueryService.cs:79`, `ConversationMessageMapper.cs:131`) and the live preview (which needs a `streaming` turn) hide it. But the next turn's history loads every message (`ConversationService.cs:801-812`) and `ConversationHistoryBuilder` turns the empty row into an assistant `ChatMessage` with no content (`:676-677`), which providers such as Anthropic may reject. The same applies to SQL Server with `READ_COMMITTED_SNAPSHOT` on, which keeps the race (decision 1) | `Stop_fence_clears_a_streaming_row_the_worker_commits_while_the_fence_waits` (`StopFenceBehaviorTests`, Postgres-only, Inconclusive on SQL Server; it holds the worker's transaction open, waits until the database reports the fence blocked by the worker's session, then commits the worker; it fails without the fix) |
 | 56 | Constraint violations recognized by finding the constraint's name in an exception message, with no provider type: `NotebookFileReconciler.IsDuplicateNotebookFileConstraint` (`IX_NotebookFiles_RelativePath_NotebookId`, `IX_NotebookFiles_DocumentId`: two syncs register the same file), the 409 `NotebookFile.DeleteReferenced` of the notebook file DELETE endpoint (`FK_ContentFileVersions_NotebookFiles_OriginNotebookFileId`, `NotebookEndpoints.cs:353`) and `NotebookFileSyncService.IsCorrelationDedupViolation` (`IX_JobQueue_CorrelationDedup`: a reconcile job already queued) | the 2601 and 547 messages name the index or the foreign key | `PostgresException.Message` is `<SQLSTATE>: <message text>`, and the 23505 and 23503 texts name the constraint in quotes | **Same**: each check matches on both providers. The names are under 63 bytes, so #8 doesn't shorten them; a future index or foreign key whose name is 64 bytes or longer would be shortened on Postgres, and a check like these would stop matching there. The foreign key isn't one of the deferred three (#25), so its violation still comes from the delete statement, inside a `DbUpdateException`. Found by the Task 14 search of production code. In 1 of 8 Postgres full runs the log shows a 23505 on `IX_NotebookFiles_DocumentId` from a background sync racing another sync, with no test failing | `Duplicate_notebook_file_registration_is_recognized_by_its_unique_index_name`, `Deleting_a_notebook_file_a_project_version_came_from_is_recognized_by_its_foreign_key_name`, `Duplicate_pending_job_is_recognized_by_its_unique_index_name` (`ConstraintMessageBehaviorTests`; they call `NotebookFileReconciler.IsDuplicateNotebookFileConstraint` and `NotebookFileSyncService.IsCorrelationDedupViolation`, now `internal`, and a copy of the endpoint's inline filter) |
 
-### Working list (Task 6 Postgres run, all `Open`)
-
-Run: `GA_INTEGRATION_TEST_DB_PROVIDER=Postgres dotnet test src/server/GuideAntsApi.IntegrationTests/GuideAntsApi.IntegrationTests.csproj`
-on 2026-11-04 with commit `test(db): run integration tests on SQL Server or Postgres`. Result: 271 tests: **6 passed, 264
-failed, 1 skipped**. The suite runs to completion.
-
-- Passed: the 6 `Settings.RoutingProblemDetailsShapeTests`, which don't start the host.
-- Skipped: `CompactionLlamaCppEndToEndTests.RealLlamaCpp_Overflows_Compacts_Continues_AndOffersRecall`. It is Inconclusive
-  without a llama server and is skipped on SQL Server too.
-- Failed: all 264 fail in class or test initialization with the same error, `Failed to load DB-backed application
-  settings from '<unparseable-connection-string>' ... Keyword not supported: 'host'` (#16).
-- Class names are relative to `GuideAntsApi.IntegrationTests`.
-- The MARS test (#15) is in this list only because the host failed to start in its `BaseTestInitialize`. Its own first
-  line marks it Inconclusive.
-
-<details>
-<summary>All 264 failing tests, by class</summary>
-
-- `Endpoints.AdminUsersEndpointsTests` (7): `Approve_AssignsRoleAndApproverAndRejectsInvalidInput`, `ApprovedUser_GainsApprovedAccessImmediately_WithoutReLogin`, `ChangeRole_DoesNotRevokeSession_NorForceReLogin`, `ChangeRole_UpdatesSingleRoleRow`, `LastAdminSafeguard_BlocksDeactivateAndDemote`, `NonAdminToken_ReturnsForbidden_ForAllAdminUserRoutes`, `SetPassword_UsesHasherAndInvalidatesPreviousToken`
-- `Endpoints.AssistantAvatarEndpointTests` (3): `GetAvatar_ReturnsImage_WhenFileExists`, `GetAvatar_ReturnsNotFound_WhenAssistantDoesNotExist`, `GetAvatar_ReturnsNotFound_WhenAvatarFileDoesNotExist`
-- `Endpoints.AssistantsEndpointsTests` (1): `Assistant_crud_round_trip_through_api`
-- `Endpoints.AuthEndpointsTests` (5): `ChangePassword_UpdatesPasswordClearsMustChangeFlagAndRotatesSession`, `ChangePassword_WithWrongCurrentPassword_ReturnsBadRequest`, `ConcurrentInitialRegistrations_CreateExactlyOneAdmin`, `RegisterLoginAndMeFlow_MatchesBackendAuthRequirements`, `RegisterPendingUserThenAdminApprove_AssignsRoleAndUnlocksApprovedEndpoints`
-- `Endpoints.AuthorizationMatrixEndpointsTests` (1): `RepresentativeEndpointGuards_MatchRoleMatrixAndToolbarSplit`
-- `Endpoints.CliAuthEndpointsTests` (14): `Approve_AsNonAdmin_Returns403`, `Approve_WithoutAuthentication_Returns401`, `CreateSession_Anonymous_Returns200WithSessionFields`, `Deny_AsAdmin_Returns204_ThenTokenPoll_Returns403`, `Deny_AsNonAdmin_Returns403`, `Deny_UnknownSession_Returns404`, `Deny_WithoutAuthentication_Returns401`, `FullFlow_CreateApproveIssue_TokenAuthenticatesAgainstMe`, `GetToken_AfterConsumed_Returns410`, `GetToken_BeforeApproval_Returns202Pending`, `GetToken_NoDeviceSecretHeader_Returns401`, `GetToken_UnknownSessionId_Returns404`, `GetToken_WrongDeviceSecret_Returns401`, `Login_StillReturns200_AfterTokenWriteRemoved`
-- `Endpoints.ConversationManagerIntegrationTests` (9): `ConversationApi_AssistantSwitchShouldNotStoreHandoffMessage`, `ConversationApi_NewConversationShouldHaveProperMessageOrdering`, `ConversationApi_SystemMessageShouldAppearBeforeUserMessage`, `ConversationCurrentState_View_ShouldReturnCorrectData`, `ConversationCurrentState_WithAssistantChange_ShouldReflectNewAssistant`, `ConversationCurrentState_WithNoTurns_ShouldReturnNullCurrentState`, `ConversationManager_ShouldPreserveMessageContext`, `ConversationManager_ShouldTrackTurnsCorrectly`, `LoadConversationAsync_ShouldLoadMessagesInChronologicalOrder`
-- `Endpoints.FileLineageEndpointsTests` (3): `DownloadLineageEvent_ReturnsFileContent`, `GetFileHistory_ReturnsEvents`, `GetLineageEvent_ReturnsDto`
-- `Endpoints.GuideUsageEndpointsTests` (3): `Conversation_invocations_endpoint_returns_tree_for_seeded_turns`, `Guide_usage_endpoints_return_aggregates_for_seeded_activity`, `Turn_trace_endpoint_returns_prompt_trace_for_turn`
-- `Endpoints.GuidesEndpointsTests` (6): `ExportGuide_Requires_admin_authorization`, `ExportGuide_Returns_bad_request_for_missing_guide`, `ExportGuide_Returns_zip_with_manifest_behavior`, `GetGuides_Requires_admin_authorization`, `Guide_crud_round_trip_through_api`, `ValidateGuideRuntime_Returns_ok_for_cloud_model`
-- `Endpoints.HostFolderMountEndpointsTests` (11): `ApplyCommand_ReturnsSanitizedCommandShape`, `CreateMount_InvalidLeafName_ReturnsBadRequest`, `CreateMount_NotebookScope_CreatesSingleLinkRow`, `CreateMount_ProjectScope_ReturnsPlanSection11Shape`, `CreateMount_WindowsStyleHostPath_AcceptedWhenApiRunsOnLinux`, `DeleteMount_RemovesRecord`, `InternalComposeOverridePlan_ReturnsScriptShape`, `ListAndGet_OmitSensitiveFieldsInSummary_IncludeInAdminDetail`, `NonAdmin_CreateMount_ReturnsForbidden`, `Reconcile_ReturnsCurrentStatus`, `RemoveCommand_ReturnsPlanSection11Shape`
-- `Endpoints.HostFolderMountReconcileIntegrationTests` (5): `NewNotebookWithActiveProjectMount_GetsLinkSymlinkAndRegistry`, `NewNotebookWithSourceAbsent_LinkPendingRestartOrLinkErrorSurfaced`, `RemoveCommand_UnlinksSymlinksBeforeReturningCommand`, `RemoveFlow_ReconcileAfterSourceRemoved_MarksRemoved`, `StartupReconciliation_RecreatesMissingSymlinkForActiveMount`
-- `Endpoints.LlamaAuthorizationEndpointsTests` (3): `LlamaRoutes_Admin_PassAuthorizationGate`, `LlamaRoutes_NonAdmin_Return403`, `LlamaRoutes_Unauthenticated_Return401`
-- `Endpoints.NotebookConversationAssistantSwitchingTests` (6): `GetConversation_AfterAssistantSwitch_ReturnsCurrentAssistant`, `SendMessage_AssistantSwitch_AddsSystemMessagesAndPreservesContext`, `SendMessage_MultipleAssistantSwitches_MaintainsCorrectContext`, `SendMessage_NewConversation_CreatesConversationWithSelectedAssistant`, `SendMessage_SameAssistantContinuation_DoesNotAddSystemMessages`, `SendMessage_StreamingWithAssistantSwitch_ReturnsCorrectEvents`
-- `Endpoints.NotebookConversationEndpointsTests` (2): `CreateConversation_And_SendMessage_Flow`, `ListConversations_ReturnsLastActivity_AndOrdersByRecent`
-- `Endpoints.NotebookConversationStreamingEndpointsTests` (2): `SendMessage_Stream_ReturnsSseEventsInOrder`, `SendMessage_Stream_WhenConversationIsLocked_Returns409Conflict`
-- `Endpoints.NotebookConversationStreamingToolCallsTests` (3): `SendMessage_StreamWithSimpleAssistant_DoesNotContainToolCallEvents`, `SendMessage_StreamWithToolCalls_ContainsExpectedEventData`, `SendMessage_StreamWithToolCalls_ReturnsSseEventsInCorrectOrder`
-- `Endpoints.NotebookConversationsEndpointsDeepTests` (14): `CreateConversation_WithSourceConversationId_CopiesMessages`, `EditMessage_ForAssistantMessage_Succeeds`, `EditMessage_ForMissingMessage_Returns404`, `EditMessage_ForUserMessage_Returns400`, `GenerateTitle_ForMissingConversation_Returns404`, `GetConversation_ForMissing_Returns404_and_RenameDelete_Succeed`, `SaveAs_CreatesMarkdownFile_FromConversation`, `SaveAs_ForMissingConversation_Returns404`, `SendMessage_Stream_ForMissingConversation_Returns404`, `SendMessage_WithoutEventStreamAccept_Returns400`, `UndoLast_ForMissingConversation_Returns404`, `UndoLast_RemovesLatestTurn`, `UndoSpecific_ForMissingMessage_Returns404`, `UndoSpecific_RemovesFromTargetTurn`
-- `Endpoints.NotebookFileSyncEndpointsTests` (3): `Sync_adds_updates_and_deletes_files`, `Sync_concurrent_runs_do_not_duplicate`, `Sync_skips_locked_file_then_picks_up`
-- `Endpoints.NotebookTemplateEndpointsTests` (2): `GetNotebookTemplateAvatar_ReturnsImage`, `GetNotebookTemplates_ReturnsTemplatesWithExpectedFields`
-- `Endpoints.ProjectContentFileVersioningEndpointsTests` (4): `GetVersionContent_ReturnsCorrectContent`, `GetVersions_ReturnsAllVersions`, `UploadFile_FirstVersion_CreatesVersion1`, `UploadFile_NewVersion_IncrementsVersion`
-- `Endpoints.ProjectContentFileWithFoldersEndpointsTests` (8): `MoveFile_DuplicateNameInFolder_ReturnsBadRequest`, `MoveFile_NonExistentFile_ReturnsNotFound`, `MoveFile_ToFolder_UpdatesFileLocation`, `MoveFile_ToInvalidFolder_ReturnsBadRequest`, `MoveFile_ToRoot_UpdatesFileLocation`, `UploadFile_WithFolderId_PlacesFileInFolder`, `UploadFile_WithInvalidFolderId_ReturnsBadRequest`, `UploadFile_WithoutFolderId_PlacesFileInRoot`
-- `Endpoints.ProjectEndpointsTests` (8): `CopyProject_CreatesNewProjectWithSameContent`, `CreateProject_WithValidData_ReturnsCreatedProject`, `DeleteProject_WhenOwnerAndEmpty_RemovesProject`, `GetProjectDetails_ReturnsFullProjectDetails`, `GetProject_WhenExists_ReturnsProject`, `GetProject_WhenNotExists_ReturnsNotFound`, `GetUserProjects_ReturnsOnlyUserProjects`, `UpdateProject_WhenOwner_UpdatesProject`
-- `Endpoints.ProjectFolderEndpointsTests` (13): `CreateFolder_WithDuplicatePath_ReturnsBadRequest`, `CreateFolder_WithInvalidName_ReturnsBadRequest`, `CreateFolder_WithParent_ReturnsCreatedWithCorrectPath`, `CreateFolder_WithValidData_ReturnsCreated`, `DeleteFolder_EmptyFolder_ReturnsNoContent`, `DeleteFolder_NonEmptyFolder_ReturnsBadRequest`, `GetFolderTree_WithNestedStructure_ReturnsCorrectTree`, `GetFolder_ExistingFolder_ReturnsOk`, `GetFolder_NonExistentFolder_ReturnsNotFound`, `GetFolders_ReturnsAllFolders`, `MoveFolder_CircularReference_ReturnsBadRequest`, `MoveFolder_ValidMove_ReturnsNoContent`, `UpdateFolder_WithNewName_ReturnsOk`
-- `Endpoints.ProjectScheduledJobEndpointsTests` (7): `CreateListUpdateDelete_NewConversationJob_SucceedsForAdmin`, `GetJob_ReturnsNotFoundWhenJobBelongsToDifferentProject`, `GetRun_ReturnsNotFoundWhenJobBelongsToDifferentProject`, `ListRuns_ClampsPagingBounds`, `ListRuns_ReturnsNotFoundWhenJobBelongsToDifferentProject`, `RunNow_ReturnsAccepted`, `ScheduledJobEndpoints_RequireAdminRole`
-- `Endpoints.PublishedGuidesAppIdentityEndpointsTests` (6): `AppIdentity_missing_token_on_message_endpoint_returns_401`, `GetPublishedGuide_Returns_authMode_and_requiresAuth_for_app_identity`, `PublishGuide_Rejects_app_identity_auth_mode`, `SendMessageStream_Persists_internal_user_id_for_app_identity`, `UpdatePublishedGuide_Rejects_changing_auth_mode_away_from_app_identity`, `UpdatePublishedGuide_Rejects_setting_auth_mode_to_app_identity`
-- `Endpoints.PublishedGuidesEndpointsTests` (1): `GetPublishedGuide_Returns_not_found_for_unknown_id`
-- `Endpoints.SandboxOpenAiWireEndpointsTests` (3): `GetModels_With_invalid_token_returns_401`, `GetModels_With_valid_sandbox_wire_jwt_returns_enabled_aliases`, `PostResponses_With_valid_token_returns_unsupported_feature`
-- `Endpoints.SystemGuideEndpointsTests` (9): `GetProject_system_project_as_admin_returns_ok`, `GetProject_system_project_as_reader_returns_not_found`, `GetProjects_excludes_system_project`, `GetSandboxAdminRequirements_notebook_without_guide_returns_bad_request`, `GetSystemGuideSession_admin_returns_admin_published_guide`, `GetSystemGuideSession_contributor_returns_user_published_guide`, `GetSystemGuideSession_pending_returns_forbidden`, `GetSystemGuideWorkspace_admin_returns_project_slug`, `GetSystemGuideWorkspace_contributor_returns_not_found`
-- `Endpoints.UsageEndpointsTests` (1): `Usage_summary_by_project_details_and_breakdown_return_data`
-- `OpenApi.GuideantsSwaggerExportTests` (1): `ExportGuideantsSwagger_FromRunningApi`
-- `Services.Conversations.AttachmentMessageBuilderIntegrationTests` (2): `CreateMessages_and_content_inline_real_text_file_from_file_service`, `CreateMessages_returns_empty_when_file_service_is_null`
-- `Services.Conversations.CompactionEndToEndTests` (3): `Compact_WithoutPriorOverflow_FirstSendAfterCompaction_UsesSummary`, `CompactedConversation_StillOverflowing_FailsCleanly_WithoutMutatingContent`, `LongConversation_Overflows_Compacts_Continues_AndRecallsWhatTheSummaryReplaced`
-- `Services.Conversations.ConversationPersistenceMarsSqlIntegrationTests` (1): `Repeated_streaming_writes_do_not_trigger_mars_savepoint_warning`
-- `Services.Conversations.ConversationServiceIntegrationTests` (36): `CreateConversation_Throws_when_notebook_missing`, `CreateConversation_Trims_title_and_defaults_untitled`, `DeleteConversation_NoOp_when_missing`, `DeleteConversation_Removes_conversation_and_messages`, `EditMessage_endpoint_rejects_non_assistant_message`, `EditMessage_endpoint_returns_404_for_missing_message`, `EditMessage_endpoint_updates_assistant_message_and_records_history`, `GetConversationById_Projects_messages_with_edit_history_user_and_attachments`, `GetConversationById_ReturnsNull_WhenMissing`, `GetConversationWithMessages_Projects_turn_files_thinking_tool_calls_and_filters_duplicates`, `GetConversationWithMessages_ReturnsNull_WhenMissing`, `GetList_Orders_by_usage_event_last_activity`, `GetList_ReturnsEmpty_WhenNotebookMissing`, `GetUserConversations_excludes_deleted_projects_and_applies_search_sort_paging`, `ObserveEvents_unknown_conversation_returns_404`, `RenameConversation_Throws_when_missing`, `RenameConversation_Updates_and_keeps_existing_when_blank`, `SendMessageStream_Cancel_during_thinking_persists_thinking_without_zero_token_usage`, `SendMessageStream_Cancel_finalizes_partial_message_marks_turn_cancelled_and_prunes_incomplete_tool_calls`, `SendMessageStream_Checkpoints_thinking_before_terminalization`, `SendMessageStream_Complete_event_is_emitted_after_unlock_for_stream_client_and_observers`, `SendMessageStream_Emits_thinking_blocks_in_stream_and_persists_to_assistant_message`, `SendMessageStream_HttpCancel_during_nestedReadWeb_stops_worker_before_success_and_preserves_data`, `SendMessageStream_Persists_tool_call_assistant_and_tool_result_with_idempotent_tool_usage`, `SendMessageStream_Persists_turn_messages_usage_and_releases_lock`, `SendMessageStream_SseDisconnect_keeps_worker_locked_until_explicit_cancel_and_reattach_observe`, `SendMessageStream_Stop_wins_when_provider_ignores_cancellation_until_return`, `SendMessageStream_TimeoutDuringStream_preserves_partial_text_and_marks_turn_timed_out`, `SendMessageStream_With_attachment_persists_MessageAttachment_and_includes_file_in_history`, `SendMessageStream_With_duplicate_file_and_path_attachments_persists_each_canonical_attachment_once`, `SendMessageStream_With_multiple_attachments_persists_distinct_order_indexes`, `UndoForMessage_Removes_from_target_turn_onward`, `UndoForMessage_Throws_when_message_missing`, `UndoLast_NoOp_when_no_user_messages`, `UndoLast_Removes_only_latest_turn`, `UndoLast_Throws_when_conversation_missing`
-- `Services.Conversations.ConversationStopDataPreservationSqlIntegrationTests` (1): `Stop_preserves_partial_thinking_tool_calls_and_cancellation_result_on_sql_with_mars`
-- `Services.Conversations.ConversationTurnRecoverySqlIntegrationTests` (3): `RecoverStaleTurns_terminalizes_orphaned_streaming_turn_on_sql`, `TryClaimStaleTurnAsync_loses_when_checkpoint_advances_last_updated`, `TryClaimStaleTurnAsync_only_one_concurrent_claim_succeeds`
-- `Services.Conversations.PublishedConversationModelResolutionTests` (1): `SendMessageStream_Resolves_via_global_override_when_assistant_has_no_model`
-- `Services.Conversations.PublishedConversationServiceIntegrationTests` (8): `CreateConversation_Creates_with_trim_and_untitled_defaults`, `CreateConversation_Throws_when_notebook_missing`, `GetConversationWithMessages_Filters_duplicate_assistant_without_tool_calls`, `GetConversationWithMessages_Projects_user_join_edit_history_and_attachments`, `GetConversationWithMessages_Returns_null_for_missing`, `UndoLast_NoOp_when_conversation_missing`, `UndoLast_NoOp_when_no_user_messages`, `UndoLast_Removes_only_latest_turn`
-- `Services.Conversations.PublishedConversationStreamingTests` (10): `ResumeAfterExternalToolResultsStream_Continues_run_and_persists_new_assistant_message`, `ResumeAfterExternalToolResults_WithSecondClientToolRound_ReleasesLockOnEachExternalToolCall`, `SendMessageStream_Enforces_MaxTurns_from_published_guide`, `SendMessageStream_Enforces_MaxUserMessageLength_from_published_guide`, `SendMessageStream_Persists_user_and_assistant_messages_and_streams_content`, `SendMessageStream_Throws_ArgumentException_when_instructions_blank_and_no_attachments`, `SendMessageStream_Throws_KeyNotFound_when_conversation_missing`, `SendMessageStream_When_client_tool_is_requested_leaves_turn_streaming`, `SendMessageStream_WithExternalToolCall_ReleasesLock_AllowingResumeWhileStreamOpen`, `SendMessageStream_With_path_only_folder_attachment_persists_and_injects_folder_notice`
-- `Services.Conversations.ToolLimitIntegrationTests` (3): `SendMessageStream_RepeatedToolRounds_Persists_each_assistant_tool_call_message`, `SendMessageStream_ToolLimit_AllowsMaxThenSyntheticResult_AndEscalatesToForceComplete`, `SendMessageStream_ToolLimit_CompletedTurn_RehydratesOnGetReload_T13`
-- `Services.Migrations.AsciiSlugNormalizationRunnerIntegrationTests` (3): `RunAsync_Apply_AllSlugsSafe_NoChangesRequired`, `RunAsync_Apply_NormalizesUnsafeSlugsAndMovesDirectories`, `RunAsync_DryRun_DoesNotMoveDirectoriesOrChangeSlugs`
-- `Services.Migrations.NamedStorageMigrationRunnerIntegrationTests` (4): `RunAsync_Apply_ArchivesUnmappedLegacyGuidDirectories`, `RunAsync_Apply_MovesGuidDirectoriesToSlugsAndRewritesDbPaths`, `RunAsync_Apply_TargetSlugDirectoryAlreadyExists_ThrowsAndRollsBack`, `RunAsync_DryRun_DoesNotMoveDirectoriesOrChangeDb`
-- `Settings.ChatDefaultsChatReadinessIntegrationTests` (1): `PutChatDefaults_ImmediatelyReflectsInNotebookChatReadiness`
-- `Settings.ImageBundleDefinitionIntegrationTests` (2): `ExportImageGenerationBundleDefinition_ReturnsCanonicalJson`, `GetImageGenerationBundleDefinitions_ReturnsCheckedInDefaults`
-- `Settings.Qwen36ChatWalkthroughTests` (9): `AddCatalogAndRouterAlias_InventoryReportsAlias_Unloaded`, `Bootstrap_Empty_InventoryReturnsEmpty`, `DispatchChat_BlankProvider_ThrowsProviderNotReady`, `DispatchChat_LlamaCppWithoutRuntimeConfigJson_ThrowsModelNotReady`, `DispatchChat_UnknownModel_ThrowsModelNotReady`, `DispatchChat_UnloadedRuntime_StillBuildsClient_R12_6`, `DispatchChat_WithLoadedRuntime_ReturnsLlamaCppClient`, `LoadAlias_TransitionsToLoaded_ViaSettingsEndpoint`, `UnloadAfterLoad_FollowedByChat_StillBuildsClient`
-- `Settings.RoutingEndpointsTests` (4): `ChatTargetReadiness_Strict_BlockedModel_Returns409RoutingModelNotReady`, `ChatTargetReadiness_UnknownModel_Returns404WithModelNotFoundProblem`, `ChatTargetsPreflight_NoAssistantsConfigured_ReturnsEmptyList`, `GetChatTargets_ListsCatalogModels`
-- `Settings.SettingsEndpointsDeepTests` (9): `ChatDefaults_GetAndPut_ReturnOk`, `GetSection_Unknown_Returns404`, `Infrastructure_Dependencies_Probes_And_Override`, `Models_FullCrudLifecycle`, `Overview_And_ConnectionUsage_ReturnOk`, `Sections_Schema_Readiness_ReturnOk`, `ServiceEditor_UnknownService_Returns400`, `UpdateSection_UnknownSection_Returns404`, `UpdateSection_ValidStaleAndUnsupportedField_CoverBranches`
-
-</details>
-
-#### Next layer, from a diagnostic run (not committed)
-
-Every failure in the run above has the same cause, so I ran the suite once more with a throwaway patch:
-`ApplicationSettingsConfigurationProvider` read the table through `NpgsqlConnection` on Postgres. I reverted the patch
-right after the run, and it is not in any commit. The result was **210 passed, 59 failed, 2 skipped**. The second
-skipped test is the MARS test, now Inconclusive as intended. The 59 failures are below.
-
-These groups predict what will be left after Task 11. Group C also hides the real results of the 36 tests it blocks.
-
-**A. Auth app lock, #17 (13):**
-- `Endpoints.AdminUsersEndpointsTests` (7): `Approve_AssignsRoleAndApproverAndRejectsInvalidInput`, `ApprovedUser_GainsApprovedAccessImmediately_WithoutReLogin`, `ChangeRole_DoesNotRevokeSession_NorForceReLogin`, `ChangeRole_UpdatesSingleRoleRow`, `LastAdminSafeguard_BlocksDeactivateAndDemote`, `NonAdminToken_ReturnsForbidden_ForAllAdminUserRoutes`, `SetPassword_UsesHasherAndInvalidatesPreviousToken`
-- `Endpoints.AuthEndpointsTests` (5): `ChangePassword_UpdatesPasswordClearsMustChangeFlagAndRotatesSession`, `ChangePassword_WithWrongCurrentPassword_ReturnsBadRequest`, `ConcurrentInitialRegistrations_CreateExactlyOneAdmin`, `RegisterLoginAndMeFlow_MatchesBackendAuthRequirements`, `RegisterPendingUserThenAdminApprove_AssignsRoleAndUnlocksApprovedEndpoints`
-- `Endpoints.CliAuthEndpointsTests` (1): `Login_StillReturns200_AfterTokenWriteRemoved`
-
-**B. Conversation lock FK detection, #18 (3):**
-- `Endpoints.NotebookConversationsEndpointsDeepTests` (2): `SendMessage_Stream_ForMissingConversation_Returns404`, `UndoLast_ForMissingConversation_Returns404`
-- `Services.Conversations.ConversationServiceIntegrationTests` (1): `UndoLast_Throws_when_conversation_missing`
-
-**C. Self-referencing NO ACTION + CASCADE delete in cleanup, #19 (36).** Every `BaseEndpointTest` class that runs after
-the first test user with a self-assigned role fails in `BaseTestInitialize`:
-- `Endpoints.SystemGuideEndpointsTests` (9): `GetProject_system_project_as_admin_returns_ok`, `GetProject_system_project_as_reader_returns_not_found`, `GetProjects_excludes_system_project`, `GetSandboxAdminRequirements_notebook_without_guide_returns_bad_request`, `GetSystemGuideSession_admin_returns_admin_published_guide`, `GetSystemGuideSession_contributor_returns_user_published_guide`, `GetSystemGuideSession_pending_returns_forbidden`, `GetSystemGuideWorkspace_admin_returns_project_slug`, `GetSystemGuideWorkspace_contributor_returns_not_found`
-- `Endpoints.UsageEndpointsTests` (1): `Usage_summary_by_project_details_and_breakdown_return_data`
-- `Services.Conversations.ConversationStopDataPreservationSqlIntegrationTests` (1): `Stop_preserves_partial_thinking_tool_calls_and_cancellation_result_on_sql_with_mars`
-- `Services.Conversations.ConversationTurnRecoverySqlIntegrationTests` (3): `RecoverStaleTurns_terminalizes_orphaned_streaming_turn_on_sql`, `TryClaimStaleTurnAsync_loses_when_checkpoint_advances_last_updated`, `TryClaimStaleTurnAsync_only_one_concurrent_claim_succeeds`
-- `Services.Conversations.PublishedConversationModelResolutionTests` (1): `SendMessageStream_Resolves_via_global_override_when_assistant_has_no_model`
-- `Services.Conversations.PublishedConversationServiceIntegrationTests` (8): `CreateConversation_Creates_with_trim_and_untitled_defaults`, `CreateConversation_Throws_when_notebook_missing`, `GetConversationWithMessages_Filters_duplicate_assistant_without_tool_calls`, `GetConversationWithMessages_Projects_user_join_edit_history_and_attachments`, `GetConversationWithMessages_Returns_null_for_missing`, `UndoLast_NoOp_when_conversation_missing`, `UndoLast_NoOp_when_no_user_messages`, `UndoLast_Removes_only_latest_turn`
-- `Services.Conversations.PublishedConversationStreamingTests` (10): `ResumeAfterExternalToolResultsStream_Continues_run_and_persists_new_assistant_message`, `ResumeAfterExternalToolResults_WithSecondClientToolRound_ReleasesLockOnEachExternalToolCall`, `SendMessageStream_Enforces_MaxTurns_from_published_guide`, `SendMessageStream_Enforces_MaxUserMessageLength_from_published_guide`, `SendMessageStream_Persists_user_and_assistant_messages_and_streams_content`, `SendMessageStream_Throws_ArgumentException_when_instructions_blank_and_no_attachments`, `SendMessageStream_Throws_KeyNotFound_when_conversation_missing`, `SendMessageStream_When_client_tool_is_requested_leaves_turn_streaming`, `SendMessageStream_WithExternalToolCall_ReleasesLock_AllowingResumeWhileStreamOpen`, `SendMessageStream_With_path_only_folder_attachment_persists_and_injects_folder_notice`
-- `Services.Conversations.ToolLimitIntegrationTests` (3): `SendMessageStream_RepeatedToolRounds_Persists_each_assistant_tool_call_message`, `SendMessageStream_ToolLimit_AllowsMaxThenSyntheticResult_AndEscalatesToForceComplete`, `SendMessageStream_ToolLimit_CompletedTurn_RehydratesOnGetReload_T13`
-
-**D. SQL Server-only storage migration runners, #20 (7):**
-- `Services.Migrations.AsciiSlugNormalizationRunnerIntegrationTests` (3): `RunAsync_Apply_AllSlugsSafe_NoChangesRequired`, `RunAsync_Apply_NormalizesUnsafeSlugsAndMovesDirectories`, `RunAsync_DryRun_DoesNotMoveDirectoriesOrChangeSlugs`
-- `Services.Migrations.NamedStorageMigrationRunnerIntegrationTests` (4): `RunAsync_Apply_ArchivesUnmappedLegacyGuidDirectories`, `RunAsync_Apply_MovesGuidDirectoriesToSlugsAndRewritesDbPaths`, `RunAsync_Apply_TargetSlugDirectoryAlreadyExists_ThrowsAndRollsBack`, `RunAsync_DryRun_DoesNotMoveDirectoriesOrChangeDb`
-
-#### After Task 11
-
-Run on 2026-11-04 with commit `feat(db): load DB-backed settings and bucket usage on Postgres`. Result: 276 tests (the
-271 above plus 5 new `DatabaseBehavior` tests): **215 passed, 59 failed, 2 skipped**. The host now starts on Postgres
-(#16 fixed). Every test has the same outcome as in the diagnostic run above, and the 5 new tests pass, so the 59
-failures are exactly groups A to D above (13 + 3 + 36 + 7). The 2 skipped tests are the llama test and the MARS test
-(Inconclusive). `UsageEndpointsTests.Usage_summary_by_project_details_and_breakdown_return_data` still fails in its
-initialization from #19 (group C), so it doesn't yet exercise the #22 fix through the endpoint; the `DatabaseBehavior`
-bucket tests do.
-
-#### After Task 6b
-
-Run on 2026-11-04 with commit `fix(db): defer the NO ACTION checks a Postgres cascade can outrun`. Result: 296 tests (the
-276 above, the 3 Task 11 fix-round tests and 17 new `CascadeDeleteBehaviorTests`): **271 passed, 23 failed, 2 skipped**.
-- The 36 tests of group C (#19) all pass, `UsageEndpointsTests.Usage_summary_by_project_details_and_breakdown_return_data`
-  included, so #22 is now also exercised through the endpoint.
-- The 23 failures are groups A (13, #17), B (3, #18) and D (7, #20), with the same causes as before. The log has no
-  foreign key violation left.
-- The 2 skipped tests are the llama test and the MARS test.
-
-The deferred set comes from the cascade graph, not from a list of known cases:
-`Postgres_defers_exactly_the_no_action_checks_a_cascade_of_the_same_delete_could_outrun` computes it from the SQL Server
-catalog. A NO ACTION FK needs deferral when some delete reaches its referencing table at a deeper cascade level than its
-referenced table. Three more NO ACTION FKs have referencing rows that a cascade of the same delete removes, but at the same
-level as the referenced rows, so Postgres removes them before the check, as SQL Server does, without deferral:
-- `NotebookConversationMessages` to `ConversationTurns` (deleting a conversation)
-- `AgentInvocations.ParentInvocationId` (deleting a conversation with nested invocations)
-- `ContentFileVersions.OriginVersionId` (deleting content files whose versions reference each other)
-
-They stay `NOT DEFERRABLE`, so writes to those busy tables keep the statement-time check. Proving tests:
-`Deleting_a_conversation_removes_its_turns_and_the_messages_that_reference_them`,
-`Deleting_a_conversation_removes_agent_invocations_that_reference_each_other`,
-`Deleting_content_files_whose_versions_reference_each_other_in_one_statement_removes_them`.
-
-#### After Task 7
-
-Run on 2026-11-04 with commit `feat(db): match SQL Server's case-insensitive text comparison on Postgres`. Result: 307
-tests (the 296 above and 11 new `TextComparisonBehaviorTests`): **282 passed, 23 failed, 2 skipped**. All 11 new tests
-pass, no earlier test changed outcome, and the 23 failures are still groups A, B and D.
-
-#### After Task 8
-
-Run on 2026-11-04 with the NULL-ordering change (#30). Result: 313 tests (the 307 above and 6 new
-`NullOrderingBehaviorTests`): **287 passed, 24 failed, 2 skipped**.
-- All 6 new tests pass.
-- The 23 failures of groups A, B and D are unchanged.
-- The 24th is `SendMessageStream_Cancel_during_thinking_persists_thinking_without_zero_token_usage` ("Sequence contains
-  more than one element": two assistant messages after the cancel). It passed in 3 reruns on its own and in 2 reruns of
-  its class.
-- It is the cancel-timing race the SQL Server suite also shows: in this task's SQL Server run, whose SQL this change
-  doesn't touch, its sibling `SendMessageStream_Cancel_finalizes_partial_message_marks_turn_cancelled_and_prunes_incomplete_tool_calls`
-  failed with the same message and passed on rerun.
-- The cancel path orders only by NOT NULL keys (`TurnIndex`, `MessageSequence`, `Created`), whose SQL is unchanged.
-
-#### After Task 10
-
-Run on 2026-11-09 with the Task 10 changes (job claim, application lock, serializable retry, FK detection,
-`READ UNCOMMITTED`, version guard). Result: 345 tests (the 335 of the Task 9 fix-round run and 10 new
-`QueueAndLockBehaviorTests`): **334 passed, 9 failed, 2 skipped**.
-- The 13 tests of group A (#17) and the 3 of group B (#18) pass, and so do the 10 new tests.
-- 7 failures are group D (#20, Task 14), unchanged.
-- The other 2 are the cancel-timing race seen since Task 8 (`SendMessageStream_Cancel_finalizes_partial_message_marks_turn_cancelled_and_prunes_incomplete_tool_calls`
-  and `SendMessageStream_Cancel_during_thinking_persists_thinking_without_zero_token_usage`, "Sequence contains more
-  than one element"). Their class passed in 3 reruns.
-- On SQL Server the same 345 tests gave 338 passed, 1 failed and 6 skipped. The failure is the same cancel race
-  (`SendMessageStream_Cancel_finalizes_partial_message_marks_turn_cancelled_and_prunes_incomplete_tool_calls`), and its
-  class passed on rerun. The 6 skipped are the Postgres-only tests and the llama test. The 10 new tests pass.
-
-#### After Task 12
-
-Run on 2026-11-09 with the Postgres hybrid search (#44 to #50). Result: 357 tests (the 345 above and 12 new
-`HybridSearchBehaviorTests`): **347 passed, 8 failed, 2 skipped**.
-- All 12 new tests pass. Before the change, 11 of them failed on Postgres: the host resolved the SQL Server searcher,
-  whose T-SQL fails there, so every search came back empty.
-- 7 failures are group D (#20, Task 14), unchanged.
-- The 8th is the cancel-timing race (`SendMessageStream_Cancel_finalizes_partial_message_marks_turn_cancelled_and_prunes_incomplete_tool_calls`,
-  "Sequence contains more than one element"). Its class (44 tests) passed on rerun.
-- Compared test by test with the Task 10 run, the only other change is `SendMessageStream_Cancel_during_thinking_persists_thinking_without_zero_token_usage`,
-  which failed then and passes now (the same race).
-- On SQL Server the same 357 tests gave **350 passed, 0 failed, 7 skipped**. The 7 skipped are the 6 of the Task 10 run
-  and `Normalization_rewrites_only_standalone_terms`, which is Postgres-only. The other 11 new tests pass with the
-  unchanged SQL Server searcher. The cancel race didn't show this time.
-
-#### After Task 14
-
-Final runs on 2026-11-10 with the storage runner fix (#20), the tracker clear on every Postgres retry of an admin
-mutation (#51) and the new tests. Result: 365 tests (the 357 above, 2 `Program_switch_*` runner tests, 2 Postgres-only
-transient retry tests, `Guid_sort_order_differs_by_provider` and 3 `ConstraintMessageBehaviorTests`).
-- **Postgres: 363 passed, 0 failed, 2 skipped.** The 2 skipped are the llama test and the MARS test (#15). Group D
-  (#20) passes, and so do all the new tests. No error that looks like MARS (#15, "A command is already in progress")
-  in any Postgres run of this task. The only database errors logged by passing tests are the expected 40001s of the two
-  concurrency tests (#42, 6 per run) and, in one run, the handled 23505 of #56.
-- **SQL Server: 355 passed, 1 failed, 9 skipped.** The failure is the known
-  `SendMessageStream_Cancel_finalizes_partial_message_marks_turn_cancelled_and_prunes_incomplete_tool_calls` (#53,
-  "Sequence contains more than one element" in its prune half); its class (36 tests) passed on rerun. The 9 skipped are
-  the 7 of the Task 12 run and the 2 Postgres-only transient retry tests. The new tests that run on both providers pass.
-  Against Task 12 (350 passed), that is 350 + 6 new = 356 passing tests, one of them the flaky test.
-- **Unit and parity suites:** `GuideAntsApi.Tests` 2,825 passed, 1 skipped; `GuideAntsApi.DatabaseParity.Tests` 16
-  passed; `has-pending-model-changes` reports no changes for either provider.
-
-How often the known flaky tests failed in this task. 7 of the Postgres runs and 3 of the SQL Server runs carried a
-temporary dump of the conversation's rows at the failing assertion (not committed); it reads after the race, so it
-doesn't change it.
-
-| Test | Postgres, 8 full runs | SQL Server, 4 full runs | Rerun of its class |
-|---|---|---|---|
-| `SendMessageStream_Cancel_finalizes_partial_message_marks_turn_cancelled_and_prunes_incomplete_tool_calls` (#53) | 3 failed | 3 failed | passed: 3 of 3 on Postgres, 1 of 1 on SQL Server (36 tests each) |
-| `SendMessageStream_Cancel_during_thinking_persists_thinking_without_zero_token_usage` (#53) | 3 failed | 0 failed | passed: same reruns |
-| `RecoverStaleTurns_terminalizes_orphaned_streaming_turn_on_sql` (#54) | 0 failed | 0 failed | passed: 3 of 3 on Postgres (3 tests each) |
-
-No other test failed in any of the 12 full runs.
-
-Fix round (#55 fixed on Postgres, `StopFenceBehaviorTests` added): the Postgres full suite gave 366 tests, **364 passed,
-0 failed, 2 skipped**. The conversation and `DatabaseBehavior` classes on SQL Server gave 140 passed, 9 skipped (the new
-test is Postgres-only) and 1 failed, the known #53 flake in its prune half; its class passed on rerun. The unit suite
-(2,825 passed, 1 skipped) and the parity suite (16 passed) pass.
+**Why only three foreign keys are deferred (#19, #23 to #25).**
+- **How the set is chosen:** it comes from the cascade graph, not from a list of known cases.
+  `Postgres_defers_exactly_the_no_action_checks_a_cascade_of_the_same_delete_could_outrun` computes it from the SQL
+  Server catalog. A NO ACTION foreign key needs deferral when some delete reaches its referencing table at a deeper
+  cascade level than its referenced table.
+- **Three more NO ACTION foreign keys** have referencing rows that a cascade of the same delete removes, but at the
+  same level as the referenced rows. Postgres removes those before the check, as SQL Server does, so they need no
+  deferral:
+  - `NotebookConversationMessages` to `ConversationTurns` (deleting a conversation)
+  - `AgentInvocations.ParentInvocationId` (deleting a conversation with nested invocations)
+  - `ContentFileVersions.OriginVersionId` (deleting content files whose versions reference each other)
+- **They stay `NOT DEFERRABLE`,** so writes to those busy tables keep the check at statement time. The proving tests
+  are `Deleting_a_conversation_removes_its_turns_and_the_messages_that_reference_them`,
+  `Deleting_a_conversation_removes_agent_invocations_that_reference_each_other` and
+  `Deleting_content_files_whose_versions_reference_each_other_in_one_statement_removes_them`.
+- **For future schema changes:** the test fails when a new foreign key needs the same deferral.
 
 ## Intentional differences
 
-_To be filled in (Task 18)._
+Postgres was made to match SQL Server wherever that was practical. These are the places where it deliberately
+doesn't, and why each is safe. The rows have the details and the tests.
+
+| What differs on Postgres | Rows | Why it's safe |
+|---|---|---|
+| Reads don't send `SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED` | #41 | The hint exists so that SQL Server readers don't wait for retention cleanup's locks, at the cost of dirty reads. Postgres readers never wait for writers (MVCC) and never see uncommitted rows. So Postgres gets the benefit without the dirty reads. SQL Server still sends the same statements. |
+| The row version is the `xmin` system column: 4 bytes, one value per transaction | #14, #37 | Optimistic concurrency works the same: a stale token raises `DbUpdateConcurrencyException`, and the settings API answers 409. Clients treat the token as an opaque string. The one case that gives fewer tokens (two set-based updates of one row in one transaction) isn't used where a token is read. |
+| The registration and admin lock is an advisory lock (`pg_try_advisory_xact_lock`) instead of `sp_getapplock` | #17 | It serializes the same callers, waits up to the same 10 s and then carries on, as `sp_getapplock` does, and it is released at commit or rollback. Two resource names with the same 64-bit hash would share a lock; there are two names. |
+| A caller that waited for that lock is retried once the holder commits, instead of just reading on | #42 | The final outcome is the same as on SQL Server: one Admin, and the last-admin guard holds. The limits under bursts are in [Limits](#limits). |
+| Three NO ACTION foreign-key checks run at commit | #19, #23 to #25 | Without it, Postgres refuses deletes that SQL Server performs, and one of those hits production (deleting a notebook whose chats attach its files, #24). A single statement behaves the same. A committed state always satisfies the key. The multi-statement and concurrency differences are in #25. |
+| Timestamps keep whole microseconds, not 100 ns ticks | #32, #38 | Values are cut before they are written, so the stored value equals what the app holds. The lost digit is under 1 µs. |
+| `DateTime.MinValue` / `MaxValue` are stored as `-infinity` / `infinity`, and DateTimes read back with `Kind = Utc` | #34, #39 | They round-trip through EF. The app treats `Unspecified` as UTC wherever the `Kind` matters. |
+| U+0000 (NUL) in text is stored as U+FFFD | #35, #47 | Postgres can't store NUL, so without this the save fails. Lookups with the same value still match. |
+| Trailing spaces count in `=` | #27 | The app trims or rejects such values where they come in. What's left: a slug ending in `%20` gives 404 instead of a match. |
+| The sort order of punctuation, case ties and Guids | #28, #31 | Letters sort the same, ignoring case. The affected lists are short display lists. The app orders by a Guid only where any consistent order works. |
+| `ILIKE` and regular expressions are rejected on text columns | #29 | SQL Server can't run them either, and production code has none. |
+| Full-text tokenization: punctuation, short words, and `F#` matching | #44, #45 | Search was judged by function, and the verdict is SWITCHABLE. `F#` now finds F# text on Postgres, which SQL Server can't do. |
+| The text-score scale (about 5 to 8 times higher) | #49 | The same chunks match. The ranking shift favors chunks with the exact phrase. A rescale is one line (decision 3). |
+| Names over 63 bytes are shortened | #8 | Postgres's limit. The shortening is deterministic, and the constraint-name checks in code use shorter names (#56). |
+| Seeded rows: fixed ids, one spelling of `STT`/`TTS`, no one-time backup table; one index without its no-op filter | #6, #7, #11 to #13 | Seeded rows are read by key, never by id. A new install has nothing to back up, and the filtered column is NOT NULL. |
+| Two defects SQL Server already had are fixed on Postgres only | #51, #55 | This work doesn't change SQL Server. #55 needs your decision (decision 1). |
+
+## SQL Server-specific code inventory
+
+This lists every place in production code that uses a database-specific API, and how it is handled. Production code
+here means the non-test `*.cs` files under `src/server`, with the migrations listed separately.
+- **The search (Task 14):** it covered `UseSqlServer`, `UseNpgsql`, `Microsoft.Data.SqlClient`, `SqlConnection`,
+  `SqlException`, `SqlParameter`, `Npgsql*`, `ExecuteSqlRaw`, `SqlQueryRaw`, `FromSqlRaw`, `FromSql`, `SqlQuery<>`,
+  `ExecuteSql(`, `GetDbConnection`, `IsSqlServer()`, `IsNpgsql()`, `IsRelational()`, `ProviderName`, `EF.Functions`,
+  `HasDefaultValueSql`, `HasFilter`, `HasColumnType`, check constraints, `FromEnvironment`, and code that recognizes
+  a constraint by its name in an exception message.
+- **Rechecked for this report** against the current tree. The recheck added three things the first list didn't have:
+  #55's Postgres-only branch (written after that search), the model annotations, and the in-memory guards.
+- **Not found anywhere in production code:** `FromSqlRaw`, `FromSql`, `ExecuteSqlInterpolated`, or an interpolated
+  `SqlQuery<T>`.
+
+Paths are relative to `src/server`. The classifications:
+- **ported:** both databases are handled.
+- **SQL Server-only by design:** the row names the Postgres counterpart, or why there is none.
+- **Postgres-only:** a fix or an adaptation that runs only on Postgres.
+- **neutral:** works the same on both databases.
+
+| Site | API | Classification |
+|---|---|---|
+| `GuideAntsApi.DataModel/Database/ApplicationDbContextOptions.cs:37`, `:57` | `UseSqlServer` / `UseNpgsql` | ported: the single provider switch. On Postgres it also sets the Postgres migrations assembly and the NULL-ordering SQL generator (#30) |
+| `GuideAntsApi.DataModel/Database/DatabaseErrors.cs:2`, `:33`, `:65`, `:73` | `Microsoft.Data.SqlClient`, `SqlException`, `NpgsqlException` | ported: recognizes both databases' error shapes (#18, #21, #42) |
+| `GuideAntsApi.BackgroundJobs/JobQueueService.cs:119`, `:123` (`JobQueueClaimSql`) | `IsNpgsql()`, `ExecuteSqlRawAsync` | ported: the T-SQL `Claim` or `ClaimPostgres` (#21). `:107` `IsRelational()` is neutral (an in-memory guard) |
+| `GuideAntsApi.BackgroundJobs/Services/Search/HybridSearcher.cs:1`, `:92-102` | `SqlClient`, `SqlParameter`, `GetDbConnection` | SQL Server-only by design; `PostgresHybridSearcher` is registered on Postgres (`GuideAntsApi.BackgroundJobs/ServiceCollectionExtensions.cs:59-62`, #44 to #50) |
+| `GuideAntsApi.BackgroundJobs/Services/Search/PostgresHybridSearcher.cs:97-152`, `GuideAntsApi.BackgroundJobs/Services/Search/PostgresFullText.cs` | `NpgsqlConnection`, `NpgsqlParameter` | Postgres counterpart (#47 to #49). Its hand-written parameters set no `Size` (#36) |
+| `GuideAntsApi/Database/DatabaseAppLock.cs:50`, `:56`, `:76` | `IsNpgsql()`, `ExecuteSqlRawAsync`, `SqlQueryRaw` | ported (#17) |
+| `GuideAntsApi/Database/SqlServerDatabaseInitializer.cs:3`, `:41`, `:89` | `SqlConnection` | SQL Server-only by design; Program picks the Postgres initializer (`GuideAntsApi/Program.cs:187-197`). `:89` reads the provider with `FromEnvironment()` ([Limits](#limits)) |
+| `GuideAntsApi/Database/PostgresDatabaseInitializer.cs:33-88` | `NpgsqlConnection` | Postgres counterpart, with the version guard (#43) |
+| `GuideAntsApi/Services/Conversations/Queries/ConversationQueryService.cs:57`, `:62`, `:326`, `:331` | `IsSqlServer()`, `ExecuteSqlRawAsync` (`READ UNCOMMITTED`) | SQL Server-only by design (#41) |
+| `GuideAntsApi/Services/Core/ProjectService.cs:152-164` | `IsSqlServer()`, `ExecuteSqlRawAsync` | SQL Server-only by design (#41) |
+| `GuideAntsApi/Settings/ApplicationSettingsConfigurationProvider.cs:3`, `:217`, `:219`, `:239` | `SqlConnection` / `NpgsqlConnection` | ported (#16) |
+| `GuideAntsApi/Settings/ApplicationSettingsService.cs:213-232` | `IsSqlServer()`, `GetDbConnection` (`OBJECT_ID`) | SQL Server-only by design (#52) |
+| `GuideAntsApi/Services/Auth/AdminUserService.cs:376` | `IsNpgsql()` | Postgres-only: clears the change tracker before a retry (#51) |
+| `GuideAntsApi/Services/Conversations/Persistence/ConversationPersistence.cs:368` | `IsNpgsql()`, `ExecuteUpdate` | Postgres-only: the Stop fence clears streaming rows (#55) |
+| `GuideAntsApi/Services/UsageService.cs:67`, `:154` | `IsNpgsql()`, `EF.Functions.DateDiff*` | ported (#22) |
+| `GuideAntsApi.DataModel/ApplicationDbContext.cs:1260`, `:1385` | `IsNpgsql()` | Postgres-only: applies `PostgresModelAdapter` (#1 to #4, #8, #14, #26, #32 to #35, #40) and the microsecond cut (#32) |
+| `GuideAntsApi.DataModel/ApplicationDbContext.cs`: `HasDefaultValueSql("GETUTCDATE()")` and `("NEWID()")`, and `SqlServerIncludeProperties` (covering indexes) | default SQL, `INCLUDE` | ported by `PostgresModelAdapter`: `statement_timestamp()`, `gen_random_uuid()` and Npgsql's include properties (#40). Tests: `No_sqlserver_default_sql_remains`, `Covering_indexes_are_carried_over` |
+| `GuideAntsApi.DataModel/ApplicationDbContext.cs`: the 10 index filters written with T-SQL brackets (`HasFilter("[CorrelationId] IS NOT NULL")` and others, e.g. `:113`, `:174`, `:1256`), and the 4 check constraints (`:333`, `:342`, `:364`, `:1034`; three use brackets, one bare column names) | T-SQL identifier quoting | ported: `PostgresModelAdapter` rewrites `[x]`, and the bare column names, as `"x"`. Tests: `Index_filters_use_postgres_quoting`, `Every_sql_server_index_filter_has_a_postgres_counterpart`, `Check_constraints_use_postgres_quoting` |
+| `GuideAntsApi.DataModel/ApplicationDbContext.cs`: 23 `HasColumnType("nvarchar(max)")` (e.g. `:449`, `:458`), 2 `varbinary(max)` (`:664`, `:722`) and `vector(1536)` (`:241`) | SQL Server column types | ported: the adapter maps them to `text`, `bytea` and a pgvector column (#4). Tests: `No_sqlserver_column_types_remain`, `Embedding_maps_to_pgvector` |
+| `GuideAntsApi.DataModel/Database/SqlServerNullOrderingQuerySqlGeneratorFactory.cs` | Npgsql's internal query SQL generator (`EF1001`) | Postgres-only: SQL Server's NULL order (#30). Re-check it on every Npgsql upgrade ([Ongoing cost](#ongoing-cost)) |
+| `GuideAntsApi/Services/Migrations/StorageMigrationDbContext.cs:28`, `GuideAntsApi/Program.cs:539`, `:580` | `Configure` with the configured provider | ported (#20) |
+| `GuideAntsApi/Configuration/StartupConfiguration.cs:552-587`, `GuideAntsApi/Program.cs:187`, `:205` | provider parsed from configuration | neutral |
+| `GuideAntsApi.DataModel/ApplicationDbContext.cs:9-16` (`Factory`), `AntRunner.Chat/AntRunner.ToolCalling/AssistantDefinitions.Storage/DatabaseStorage.cs:34`, `GuideAnts.Usage/EfUsageRecorder.cs:291-297`, `GuideAnts.Usage/AgentInvocationRecorder.cs:236-237` | `Configure` with `FromEnvironment()` | ported. The provider comes from the process environment, which Program fills from configuration after the host is built (`GuideAntsApi/Program.cs:300-308`); see [Limits](#limits) |
+| `GuideAntsApi.DataModel/ApplicationDbContextDesignTimeFactory.cs`, `GuideAntsApi/Database/DesignTimeContexts.cs:7` (`[assembly: DbContext]`) | `-- --provider` argument or the environment | neutral: design time only; lets `dotnet ef` find the context for both databases |
+| In-memory guards under `GuideAntsApi/Services/Conversations/` and `GuideAntsApi/Services/LlamaCpp/LocalModelOnboarding/`: `db.Database.ProviderName` compared with `"Microsoft.EntityFrameworkCore.InMemory"` in `ConversationPersistence.cs:153`, `:345`, `:1180`, `:1235`, `:1532`; `DistributedConversationLockService.cs:51`, `:142`, `:198`, `:270`; `ConversationUndoService.cs:260`, `:289`; `ConversationTurnRecoveryService.cs:368`; and `LocalModelOperationService.cs:321-322` (`Contains("InMemory")`) | `ProviderName` | neutral: they set the unit tests' in-memory provider apart and treat SQL Server and Postgres alike |
+| `GuideAntsApi.DataModel/Migrations/*`: 19 of the 60 migrations call `migrationBuilder.Sql` | raw T-SQL | SQL Server-only by design. Postgres has its own two migrations in `GuideAntsApi.DataModel.Postgres/Migrations`, with hand-written SQL for the view, the seed rows, the deferred foreign keys and the full-text search |
+| `GuideAntsApi/Services/Components/Sync/NotebookFileReconciler.cs:483-485`, `GuideAntsApi/Endpoints/NotebookEndpoints.cs:353`, `GuideAntsApi/Services/Components/NotebookFileSyncService.cs:101-112` | constraint name in an exception message | neutral, proven on both databases (#56) |
+| `GuideAntsApi/Services/Conversations/DistributedConversationLockService.cs:114` | `DatabaseErrors.IsForeignKeyViolation` | ported (#18) |
 
 ## Ongoing cost
 
-_To be filled in (Task 18): dual migrations, plus the extra CI minutes measured from the Task 15 runs._
+What carrying both databases costs, now and for every later change:
+- **Two migrations for every schema change.** Each schema change needs a migration in
+  `GuideAntsApi.DataModel/Migrations` (SQL Server) and one in `GuideAntsApi.DataModel.Postgres/Migrations` (Postgres,
+  generated with `-- --provider Postgres`). Raw SQL in a migration has to be written in both dialects. Two CI checks
+  enforce it:
+  - `migrations-in-sync` runs `has-pending-model-changes` for each provider, so a model change without a migration
+    fails CI;
+  - `database-parity` migrates both databases from empty and compares tables, columns, indexes, foreign keys, views
+    and seeded rows.
 
-CI (`.github/workflows/client-test.yml`) now runs the server integration tests as a matrix on SQL Server and Postgres (`server-integration-test (SqlServer)` / `(Postgres)`), plus a `database-parity` job that runs `GuideAntsApi.DatabaseParity.Tests` and a separate `migrations-in-sync` job that checks `dotnet ef migrations has-pending-model-changes` for both providers (dotnet-ef 9.0.11). The extra minutes are unknown until the first GitHub run. Rows 53 and 54 are known flaky on both providers, so if the full integration run fails and every non-passing result (any outcome other than Passed/NotExecuted, cross-checked against the TRX counters) is one of those named tests, the job reruns exactly those tests once (`Name=` filter, must execute and pass); any other failure, or a second failure, fails the job (`.github/scripts/flaky_retry.py`, tests in `test_flaky_retry.py`). Branch protection must be updated to require both integration jobs, `database-parity` and `migrations-in-sync`.
+  The commands are in `src/server/GuideAntsApi.DataModel/EF_COMMANDS.md`.
+- **Provider-specific code in about 18 places** ([inventory](#sql-server-specific-code-inventory)). Each one is
+  written twice, or behind a provider check:
+  - the two hybrid searchers;
+  - the job claim, the application lock, the settings loader and the initializers;
+  - the READ UNCOMMITTED hints;
+  - the Postgres-only fixes;
+  - the model adapter.
+
+  New raw SQL has two rules on Postgres:
+  - It doesn't pass through EF's value converters, so it has to handle `DateTime` kinds, NUL characters and
+    microseconds itself (#32 to #35).
+  - A hand-written `NpgsqlParameter` must not set `Size`, because Npgsql truncates to it (#36).
+- **CI time: unknown until the first GitHub run.** The new jobs:
+  - a second integration-test leg (Postgres);
+  - `database-parity`;
+  - `migrations-in-sync`;
+  - `database-speed`, which runs only when started by hand.
+
+  The only local indication isn't comparable: the Postgres suite took about 1 m 35 s and the emulated SQL Server suite
+  about 3 m 24 s, and the integration tests' Postgres containers probably run with Testcontainers' `fsync=off`
+  defaults.
+- **Known flaky tests and the CI retry.** #53 and #54 fail now and then on both databases. CI reruns exactly those
+  tests once. The real fix is to rewrite those tests so they don't race the worker. Until then the retry list in
+  `.github/workflows/client-test.yml` has to be kept up to date.
+- **Library upgrades need checks.**
+  - **NULL ordering (#30)** relies on Npgsql's internal query SQL generator (`EF1001`). On every Npgsql upgrade,
+    re-run `NullOrderingSqlTests` and `NullOrderingBehaviorTests`. Re-check the generator if the model gains
+    inheritance, owned types, `FromSql` or JSON columns.
+  - **The string converter (#35)** applies to every column and relies on EF still translating string methods on
+    converted properties. Re-check that on EF or Npgsql upgrades.
+  - **Exact error messages:** `Postgres_rejects_ILike_and_regular_expressions_on_case_insensitive_columns` asserts
+    Postgres 18's exact messages, so it may need updating across minor versions.
+- **Deferred foreign-key checks.** A new NO ACTION foreign key that a cascade can outrun needs the same
+  `DEFERRABLE INITIALLY DEFERRED` in the Postgres migration. `Postgres_defers_exactly_the_no_action_checks_a_cascade_of_the_same_delete_could_outrun`
+  fails until it gets one.
+- **Constraint and index names over 63 bytes** are shortened on Postgres (#8). Code that recognizes a constraint by
+  its name (#56) needs names under that length.
+- **A possible index follow-up.** Three indexes on nullable sort columns can't serve SQL Server's NULL order on
+  Postgres: `IX_GuideMembers_GuideId_DisplayOrder`, `IX_Models_IsActive_DisplayOrder` and
+  `IX_Tools_Category_IsActive_DisplayOrder` (#30). All three are on small tables. If the speed numbers show the
+  models, tools or crew ordering matters, the fix is `HasNullSortOrder(NullsFirst)` in `PostgresModelAdapter`, plus a
+  Postgres migration.
+- **Developers run both databases.** A database change needs its tests run with `GA_INTEGRATION_TEST_DB_PROVIDER`
+  set to both `SqlServer` and `Postgres`. `dotnet test GuideAntsApi.sln` now includes `GuideAntsApi.DatabaseParity.Tests`,
+  which needs Docker and starts both databases. On Apple Silicon the SQL Server image runs emulated and slowly.
 
 ## Limits
 
-_To be filled in (Task 18)._ At minimum:
-- x86 CI hardware only
-- synthetic data volumes
-- no data migration
-- Guid and string tie ordering
-- Postgres 18 or later: 17 rejects `LIKE` and `strpos` on the case-insensitive collation (#26). The initializer refuses an older server at startup (#43)
-- known flaky tests, the same on both providers (#53, #54), and two stream defects found while explaining them: the duplicate final message of #53 (latent, both providers, not fixed) and #55's stray streaming row (fixed on Postgres only; SQL Server with `READ_COMMITTED_SNAPSHOT` on keeps it)
-- the launchers' Postgres path (Task 16: `--db postgres` on `start_*.sh`, `start_windows.cmd`, `installer/guideants.*` and `stop_guideants.*`) hasn't run end to end yet. It was checked with `docker compose config` on every stack file, a standalone run of the `postgres` service (healthy, PostgreSQL 18.6, pgvector 0.8.7, data kept across a container recreate), `bash -n`, and the shared bash wizard run with HEAD and the new code side by side. The `.cmd`/PowerShell launchers were only reviewed by reading. The manual test (start with `--db postgres`, register, `docker ps` shows `guideants-postgres` and no `mssql-express`, stop) is pending
-- `docker-compose.postgres.yml` (used by `start_*.sh` / `start_windows.cmd`) needs Docker Compose 2.24.4 or later because it replaces `depends_on` with `!override`. Those launchers check the version, and they refuse `--backend slim` with Postgres because the slim stack's UI image bundles SQL Server. The installer's fragment layout (`compose/postgres-separate.yml`) has neither limit
+What the evidence doesn't cover, and what to know before relying on Postgres.
+
+**Limits of the evidence:**
+- **x86 CI hardware only.** The speed numbers, once they exist, will come from one shared 4-vCPU, 16 GB GitHub
+  runner, not from production hardware.
+- **Synthetic data volumes.** The speed data is 50 projects × 10 notebooks × 20 conversations × 50 messages, plus the
+  demo corpus replicated to 20,000 chunks. The integration tests use their own small fixtures.
+- **The search comparison is one corpus of 38 queries**, and SQL Server's `CONTAINSTABLE` ranks shift slightly between
+  two seedings of the same data. More limits are under the search results above:
+  - the saved query embeddings, so the live embedding path isn't compared;
+  - no `F#`, `C++` or `.NET` query;
+  - no run with the scope filter moved before the top N;
+  - Claude-reviewed classifications.
+- **No data migration.** Switching an install to Postgres starts it on an empty database. Moving SQL Server data
+  across was out of scope, and nothing here tests it.
+- **Guid and string tie ordering differs**, and no test can make it equal. Where a Guid breaks a tie or is the only
+  key, or where strings tie on case, the rows come back in a different order on each database. Within one database
+  the order is consistent (#28, #31).
+- **Local runs only, on Apple Silicon** ([Checked by running vs. only by reading](#checked-by-running-vs-only-by-reading)).
+
+**Postgres requirements and deployment:**
+- **Postgres 18 or later is required.** Postgres 17 rejects `LIKE` and `strpos` on the case-insensitive collation
+  (#26). The initializer refuses an older server at startup with "PostgreSQL 18 or later is required" (#43). That
+  rules out managed services that don't offer 18 yet.
+- **Managed Postgres is untested.** The full-text migration runs `CREATE TEXT SEARCH DICTIONARY` and `CONFIGURATION`,
+  and the initializer connects to the `postgres` maintenance database to create the app's database (`CREATEDB`). A
+  least-privilege managed-service user may not be allowed either.
+  - The design avoids custom extensions: it uses only `vector`, ICU collations and built-in text search.
+- **Regular-expression literals.** The full-text normalizer's patterns rely on `standard_conforming_strings = on`
+  (Postgres's default) when the migration runs.
+- **Full-text ranking cost.** `ts_rank_cd` ranks every table-wide match before the result limit, across all projects.
+  A local, native and therefore only indicative run saw the `model` search take about 28 ms with 9,656 matches out of
+  20,000 chunks, against 3 to 4 ms with a few hundred matches. SQL Server's `CONTAINSTABLE` has the same table-wide
+  shape. The speed run reports the match counts.
+- **`F#` differs on purpose.** SQL Server reads it as the noise word `f` and finds nothing; Postgres finds F# text
+  (#44).
+- **Text scores are on a different scale**, about 5 to 8 times SQL Server's (#49).
+  - **Ruling:** not rescaled, because the current order favors exact-phrase matches.
+  - **To rescale:** divide the text score in `PostgresHybridSearcher`'s query, and the parity diagnostics, by the
+    measured median (5.68). Then rerun the comparison.
+  - **What the model sees:** the scores themselves, because the search tool's result serializes `Score`,
+    `VectorScore` and `TextScore`.
+- **Bursts of concurrent registrations or admin changes** (inferred, not run, #42):
+  - **Retries run out:** each caller that waited for the lock is retried, and after 5 retries the request fails. So
+    more than about 6 concurrent conflicting registrations or admin user changes can make the last caller fail with
+    500, where SQL Server would only make it wait.
+  - **A stale read:** a waiter that doesn't write can return a 4xx from its old snapshot. For example, an admin's role
+    change can answer "Pending users must be approved before changing role." while another admin's approval commits.
+    Retrying the request succeeds.
+- **Registration's retry.** Registration clears its change tracker only for a serialization failure (40001). Another
+  transient error at `SaveChanges` answers 409, as on SQL Server; the failure is loud, not silent (#51). Admin
+  mutations clear the tracker for every error on Postgres.
+- **Deferred foreign-key checks change when, and sometimes which, transaction fails** under concurrency (#25,
+  reasoned, not tested). Integrity holds either way.
+- **The stream defects found while explaining the flaky tests:**
+  - **#53:** a duplicate final message when a soft cancellation wins after the provider returned. It is latent, has
+    no production path, affects both databases and isn't fixed.
+  - **#55:** the stray streaming row, fixed on Postgres only (decision 1).
+- **Databases migrated with the earlier Postgres baseline.** Two problems were fixed by editing the unreleased
+  baseline in place, not by adding migrations:
+  - the non-deferrable foreign keys of #19, #23 and #24;
+  - the `now()` defaults of #40.
+
+  A development database migrated before those edits keeps the old behavior. Drop and recreate it. This is fine
+  before the first release, but once the baseline has shipped, changes have to be new migrations.
+
+**Configuration:**
+- **Where the provider setting is read.** The host, the storage switches and dependency injection read
+  `Database:Provider` from configuration. These parts read it from the process environment:
+  - `ApplicationDbContext.Factory`;
+  - `DatabaseStorage`;
+  - the two usage recorders;
+  - `SqlServerDatabaseInitializer`.
+
+  Program copies configuration into the environment after the host is built, for keys that aren't already set, so the
+  two agree in every normal setup. They can split only in one case: a colon-form environment variable
+  (`Database:Provider`) disagrees with a higher-priority source such as the command line. Program calls the SQL
+  Server initializer only when configuration says SQL Server, so the initializer's own read matters only in that split
+  case.
+- **Storage migration switches.** `--run-named-storage-migration` and `--run-ascii-slug-normalization` build their
+  context without the retrying execution strategy, because they open their own transactions (#20). A transient error
+  there fails the run instead of retrying.
+- **Docker and launchers:**
+  - `docker-compose.postgres.yml` needs Docker Compose 2.24.4 or later.
+  - `start_*` refuse `--backend slim` with Postgres, because the slim UI image bundles SQL Server.
+  - `GA_POSTGRES_PASSWORD` must not contain `;`, `=` or quotes.
+  - `start_*` don't remember the provider between runs; the installer does.
+  - The installer's size estimate ignores the provider.
+
+**Development environment and other observations:**
+- **`ScriptExecutionAgent.Tests` need `pwsh`.** Without it, 6 tests fail locally. That's unrelated to the database.
+- **This repository's iCloud sync.** The working copy is under an iCloud-synced `~/Documents`. iCloud created conflict
+  copies of build outputs (e.g. `GuideAntsApi 24.dll`), which risk test runs against stale binaries. Exclude `bin/` and
+  `obj/` from iCloud, or move the repository. This applies to this machine only.
+- **SQL Server deadlocks under contention.** A local full-volume check (emulated, so not timing evidence) saw SQL
+  Server's job claim produce deadlock victims (1205) under 8 concurrent workers: 4 in 26 drains of 1,000 jobs.
+  Production already tolerates them: the claim logs a warning and reports no job. Postgres had none. This is
+  existing SQL Server behavior, not a Postgres regression.
 
 ## Speed
 
 **Numbers pending.** They come from the first x86-64 CI run. After the branch is pushed, run the `database-speed` job of
 `.github/workflows/client-test.yml` by hand (Actions > "Client and Server tests" > Run workflow). It runs only on
 `workflow_dispatch`. Download the `database-speed-results` artifact into `samples/database-speed/RESULTS.md` and
-summarize it here. Dispatch it at least twice: one run has no variance estimate. No local numbers are reported: this
+summarize it here: the summary table, plus the cause of each row flagged as more than 20% slower, where it's known.
+The watch items below are the likely causes. Dispatch it at least twice: one run has no variance estimate. No local numbers are reported: this
 branch was built on Apple Silicon, where SQL Server's amd64-only image runs emulated. A full run exits 2 unless both the
 harness and the Docker daemon are x86-64.
 
@@ -494,3 +770,53 @@ both. Its numbers are not evidence.
   architecture-independent, but they come from that local run; RESULTS.md will show them from the CI run.
 - **Postgres runs with stock memory settings** (`shared_buffers` 128 MB, as `docker-compose.postgres.yml` ships it).
   SQL Server sizes its buffer pool from the container's memory instead.
+
+## Suggested CLAUDE.md additions
+
+`CLAUDE.md` isn't tracked in this repository, so this work doesn't change it. Here is text to paste into it, under
+"Commands → Server" and "Architecture":
+
+````markdown
+#### Database provider (SQL Server or Postgres)
+
+`Database:Provider` picks the database per install: `SqlServer` (the default when it's missing) or `Postgres`
+(Docker: `Database__Provider`), next to `ConnectionStrings:DefaultConnection` (Npgsql format for Postgres, e.g.
+`Host=localhost;Port=5433;Database=guideants-dev;Username=guideants;Password=...`). Postgres must be 18+ with pgvector;
+the initializer refuses older servers. One `ApplicationDbContext` serves both: `PostgresModelAdapter` adapts the model
+on Postgres, and provider-specific code branches on `Database.IsNpgsql()` / `IsSqlServer()`. Never change the SQL that
+SQL Server receives to suit Postgres. Every behavioral difference between the two, with its proving test, is logged in
+`docs/postgres-parity-report.md`: add a row when you find a new one.
+
+**Every schema change needs one migration per provider**: SQL Server in `GuideAntsApi.DataModel/Migrations`, Postgres
+in `GuideAntsApi.DataModel.Postgres/Migrations`. Raw `migrationBuilder.Sql` has to be written for each dialect. CI fails
+if either provider has pending model changes (`migrations-in-sync`) or if the two migrated schemas or seeded rows
+differ (`database-parity`). From `src/server`:
+
+```bash
+dotnet ef migrations add FeatureName --project GuideAntsApi.DataModel/GuideAntsApi.DataModel.csproj --startup-project GuideAntsApi/GuideAntsApi.csproj
+dotnet ef migrations add FeatureName --project GuideAntsApi.DataModel.Postgres/GuideAntsApi.DataModel.Postgres.csproj --startup-project GuideAntsApi/GuideAntsApi.csproj -- --provider Postgres
+dotnet ef migrations has-pending-model-changes --project GuideAntsApi.DataModel/GuideAntsApi.DataModel.csproj --startup-project GuideAntsApi/GuideAntsApi.csproj
+dotnet ef migrations has-pending-model-changes --project GuideAntsApi.DataModel.Postgres/GuideAntsApi.DataModel.Postgres.csproj --startup-project GuideAntsApi/GuideAntsApi.csproj -- --provider Postgres
+```
+
+More commands (`database update`, `remove`) are in `GuideAntsApi.DataModel/EF_COMMANDS.md`.
+
+Tests on each provider (`GA_INTEGRATION_TEST_DB_PROVIDER`: `SqlServer`, the default, or `Postgres`;
+`GA_INTEGRATION_TEST_POSTGRES_IMAGE` overrides the Postgres image, default `pgvector/pgvector:0.8.7-pg18`;
+`GA_INTEGRATION_TEST_MSSQL_IMAGE` the SQL Server one):
+
+```bash
+GA_INTEGRATION_TEST_DB_PROVIDER=Postgres dotnet test GuideAntsApi.IntegrationTests/GuideAntsApi.IntegrationTests.csproj
+dotnet test GuideAntsApi.DatabaseParity.Tests/GuideAntsApi.DatabaseParity.Tests.csproj   # needs Docker; starts both databases
+```
+
+`dotnet test GuideAntsApi.sln` includes `GuideAntsApi.DatabaseParity.Tests`, so it needs Docker. CI runs the
+integration job once per provider (`server-integration-test (SqlServer)` / `(Postgres)`) and reruns only the known
+flaky tests (parity report rows 53 and 54) once, via `.github/scripts/flaky_retry.py`.
+
+Postgres for server-on-host dev: `docker compose -f docker/docker-compose.pgsql.yml up -d` (host port 5433). Launchers:
+`./start_macos.sh --db postgres` (or `start_linux.sh` / `start_windows.cmd`, or `GA_DB_PROVIDER=postgres`); the
+installer's `./installer/guideants.sh --db postgres` remembers the choice, so switching back needs `--db sqlserver`.
+Each provider has its own database: data doesn't move between them. See
+`docs/developer-config-guide.md#postgres-instead-of-sql-server`.
+````
