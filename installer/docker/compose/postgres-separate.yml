@@ -1,0 +1,89 @@
+# Postgres 18 + pgvector in place of core-separate.yml (SQL Server). The launchers pick
+# this fragment for --db postgres (or GA_DB_PROVIDER=postgres); its depends_on lists only
+# postgres because the ai-*, docling-*, documentserver and searxng fragments add their own.
+# Switching provider points the install at a different, empty database. Nothing is migrated.
+services:
+  postgres:
+    image: ${GA_POSTGRES_IMAGE:-pgvector/pgvector:0.8.7-pg18}
+    pull_policy: missing
+    container_name: guideants-postgres
+    environment:
+      - POSTGRES_USER=guideants
+      - POSTGRES_PASSWORD=${GA_POSTGRES_PASSWORD:-YourStrong!Passw0rd}
+      - POSTGRES_DB=${GA_DB_NAME:-guideants-dev}
+    healthcheck:
+      # TCP on purpose: during first-boot init the entrypoint's temporary server listens on the
+      # Unix socket only, so this passes only once the real server (and the database) is up.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U guideants"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    cpus: "4.0"
+    volumes:
+      # Postgres 18+ images keep PGDATA at /var/lib/postgresql/18/docker and declare the
+      # volume at /var/lib/postgresql, so mount the parent (not .../data as for 17 and older).
+      - postgres_data:/var/lib/postgresql
+    restart: unless-stopped
+
+  guideants-webapi-ui:
+    image: ${GA_WEBAPI_UI_SLIM_GHCR_IMAGE:-ghcr.io/elumenotion/guideants-webapi-ui-slim:main}
+    platform: linux/amd64
+    pull_policy: missing
+    container_name: guideants-webapi-ui
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "5107:8080"
+    volumes:
+      - type: bind
+        source: ${GA_CONTENT_FILES_HOST_PATH:-./volumes/content-files}
+        target: /app/ContentFiles
+    environment:
+      - ASPNETCORE_URLS=http://127.0.0.1:8081
+      - ASPNETCORE_ENVIRONMENT=Development
+      # Idle session window (minutes). Default 30 days; the sliding renewal re-issues
+      # the cookie past the halfway point so active sessions never hard-expire.
+      - Jwt__LifetimeMinutes=${GA_JWT_LIFETIME_MINUTES:-43200}
+      - API_RUNTIME_CONTEXT=compose-installer-separate
+      - Database__Provider=Postgres
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${GA_DB_NAME:-guideants-dev};Username=guideants;Password=${GA_POSTGRES_PASSWORD:-YourStrong!Passw0rd}
+      - FileStorage__Path=/app/ContentFiles
+      - Ui__RootPath=/app/ui
+      - Ui__DevServerUrl=
+      - ALLOWED_ORIGINS=*
+      - SearXngSearch__BaseUrl=http://127.0.0.1:9
+      - BrowserRendering__BaseUrl=http://127.0.0.1:9
+      - LocalServiceHosts__SpeechTranscriptionBaseUrl=http://127.0.0.1:9
+      - LocalServiceHosts__SpeechSynthesisBaseUrl=http://127.0.0.1:9
+      - LocalServiceHosts__ImageGenerationBaseUrl=http://127.0.0.1:9
+      - LocalServiceHosts__EmbeddingsBaseUrl=http://127.0.0.1:9
+      - LocalServiceHosts__MediaBaseUrl=http://127.0.0.1:9
+      - LocalServiceHosts__DocumentIntelligenceBaseUrl=http://127.0.0.1:9
+      - DocumentServer__Enabled=false
+      - DocumentServer__InternalUrl=http://127.0.0.1:9
+      - DocumentServer__ApiBaseUrl=http://guideants-webapi-ui:8080
+      - DocumentServer__JwtEnabled=${GA_DOCUMENTSERVER_JWT_ENABLED:-false}
+      - DocumentServer__JwtSecret=${DOCUMENTSERVER_JWT_SECRET:-}
+      - DocumentServer__JwtHeader=${GA_DOCUMENTSERVER_JWT_HEADER:-Authorization}
+      - DocumentServer__JwtInBody=${GA_DOCUMENTSERVER_JWT_IN_BODY:-false}
+      - ScriptExecution__AgentToken=${GA_SCRIPT_AGENT_TOKEN:-dev-script-agent-token}
+      - ScriptExecution__AdminToken=${GA_SCRIPT_AGENT_ADMIN_TOKEN:-dev-script-agent-admin-token}
+      - ScriptExecution__TimeoutSeconds=${GA_SCRIPT_EXECUTION_TIMEOUT_SECONDS:-600}
+      - LlamaCpp__BaseUrl=http://127.0.0.1:9/llama-cpp
+      - LlamaCpp__TimeoutSeconds=${GA_LLAMA_CPP_TIMEOUT_SECONDS:-600}
+      - ServiceRouting__Containers__guideants-ai__BaseUrl=http://127.0.0.1:9/sandbox
+      - ServiceRouting__Containers__plantuml__BaseUrl=http://127.0.0.1:9
+      - HF_TOKEN=${HF_TOKEN:-}
+      - SettingsSecrets__ActiveKeyId=local-dev
+      - SettingsSecrets__Keys__local-dev=MDEyMzQ1Njc4OUFCQ0RFRjAxMjM0NTY3ODlBQkNERUY=
+      - Logging__LogLevel__GuideAntsApi.Services.Components.SpeechTranscriptionService=Information
+      - Logging__LogLevel__GuideAntsApi.Services.Components.SpeechSynthesisService=Information
+    networks:
+      - guideants-network
+      - default
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

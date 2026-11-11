@@ -1,0 +1,53 @@
+# Postgres override: runs GuideAnts on Postgres 18 + pgvector instead of SQL Server.
+#
+# Add it after the stack file and any other overrides, for example:
+#   docker compose -f docker-compose.ghcr-cpu.yml -f docker-compose.postgres.yml --env-file .env up -d
+# The launchers do this for you: ./start_macos.sh --db postgres (or GA_DB_PROVIDER=postgres).
+# Stop with the same -f list so `down` sees the postgres service.
+#
+# Works with every stack file that defines mssql-express (cpu, cuda, rocm, vulkan and their
+# ghcr-* / api-only variants). Not the slim files: their UI image bundles SQL Server.
+# Requires Docker Compose 2.24.4 or later (the !override tag below).
+#
+# Switching provider points the install at a different, empty database. Nothing is migrated.
+services:
+  postgres:
+    image: ${GA_POSTGRES_IMAGE:-pgvector/pgvector:0.8.7-pg18}
+    container_name: guideants-postgres
+    environment:
+      - POSTGRES_USER=guideants
+      - POSTGRES_PASSWORD=${GA_POSTGRES_PASSWORD:-YourStrong!Passw0rd}
+      - POSTGRES_DB=${GA_DB_NAME:-guideants-dev}
+    healthcheck:
+      # TCP on purpose: during first-boot init the entrypoint's temporary server listens on the
+      # Unix socket only, so this passes only once the real server (and the database) is up.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U guideants"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    ports:
+      - "5433:5432"
+    cpus: "4.0"
+    volumes:
+      # Postgres 18+ images keep PGDATA at /var/lib/postgresql/18/docker and declare the
+      # volume at /var/lib/postgresql, so mount the parent (not .../data as for 17 and older).
+      - postgres_data:/var/lib/postgresql
+    restart: unless-stopped
+
+  # Keep SQL Server from starting. `--profile sqlserver` would still start it.
+  mssql-express:
+    profiles: ["sqlserver"]
+
+  guideants-webapi-ui:
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+      guideants-ai:
+        condition: service_started
+    environment:
+      - Database__Provider=Postgres
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${GA_DB_NAME:-guideants-dev};Username=guideants;Password=${GA_POSTGRES_PASSWORD:-YourStrong!Passw0rd}
+
+volumes:
+  postgres_data:

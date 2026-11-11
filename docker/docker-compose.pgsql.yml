@@ -1,0 +1,32 @@
+# Postgres only, for server-on-host development (the Postgres counterpart of docker-compose.mssql.yml).
+#
+#   docker compose -f docker/docker-compose.pgsql.yml up -d
+#
+# Then run the API on the host with Database:Provider=Postgres and
+#   Host=localhost;Port=5433;Database=guideants-dev;Username=guideants;Password=YourStrong!Passw0rd
+# (the same defaults as ApplicationDbContextDesignTimeFactory). The API creates the database
+# if it's missing and runs the Postgres migrations on first boot.
+services:
+  postgres-dev:
+    image: ${GA_POSTGRES_IMAGE:-pgvector/pgvector:0.8.7-pg18}
+    container_name: guideants-postgres-dev
+    environment:
+      POSTGRES_USER: guideants
+      POSTGRES_PASSWORD: ${GA_POSTGRES_PASSWORD:-YourStrong!Passw0rd}
+      # Literal on purpose: docker/.env sets GA_DB_NAME for the full stack, not for host dev.
+      POSTGRES_DB: guideants-dev
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U guideants"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    ports:
+      - "5433:5432"
+    volumes:
+      # Postgres 18+ images keep PGDATA at /var/lib/postgresql/18/docker; mount the parent.
+      - guideants_postgres_dev_data:/var/lib/postgresql
+    restart: unless-stopped
+
+volumes:
+  guideants_postgres_dev_data:
