@@ -26,6 +26,9 @@ services:
       - postgres_data:/var/lib/postgresql
     restart: unless-stopped
 
+  # KEEP IN SYNC with core-separate.yml (its guideants-webapi-ui block): this block is a copy of it that differs only
+  # in the database lines (depends_on postgres, Database__Provider, the Npgsql connection string).
+  # scripts/validate-installer.sh fails when the two blocks differ anywhere else.
   guideants-webapi-ui:
     image: ${GA_WEBAPI_UI_SLIM_GHCR_IMAGE:-ghcr.io/elumenotion/guideants-webapi-ui-slim:main}
     platform: linux/amd64

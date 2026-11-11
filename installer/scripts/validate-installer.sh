@@ -26,6 +26,25 @@ for rel in guideants.cmd stop_guideants.cmd; do
   echo "PASS present: $rel"
 done
 
+# postgres-separate.yml copies core-separate.yml's guideants-webapi-ui block. Print a fragment's block without
+# blank lines and without the database lines (the depends_on service, Database__Provider, the connection string).
+webapi_ui_block() {
+  awk '
+    /^  guideants-webapi-ui:$/ { inblock = 1; next }
+    inblock && (/^[^ ]/ || /^  [^ ]/) { exit }
+    inblock && !/^[[:space:]]*$/ && !/^      (mssql-express|postgres):$/ && !/Database__Provider=/ && !/ConnectionStrings__DefaultConnection=/ { print }
+  ' "$1"
+}
+core_webapi_ui="$(webapi_ui_block "$DOCKER_DIR/compose/core-separate.yml")"
+postgres_webapi_ui="$(webapi_ui_block "$DOCKER_DIR/compose/postgres-separate.yml")"
+[[ -n "$core_webapi_ui" ]] || { echo "FAIL no guideants-webapi-ui block in compose/core-separate.yml" >&2; exit 1; }
+if [[ "$core_webapi_ui" != "$postgres_webapi_ui" ]]; then
+  echo "FAIL guideants-webapi-ui in compose/postgres-separate.yml differs from compose/core-separate.yml beyond the database lines:" >&2
+  diff <(printf '%s\n' "$core_webapi_ui") <(printf '%s\n' "$postgres_webapi_ui") >&2 || true
+  exit 1
+fi
+echo "PASS guideants-webapi-ui: postgres-separate.yml matches core-separate.yml apart from the database lines"
+
 if ! command -v docker >/dev/null 2>&1; then
   echo "SKIP compose config: docker not found"
   exit 0
