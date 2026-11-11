@@ -1,5 +1,63 @@
 # Entity Framework Core Commands Cheat Sheet
 
+## Two databases: SQL Server and Postgres
+
+`Database:Provider` picks the database: `SqlServer` (the default) or `Postgres`. Each provider has its own
+migrations:
+
+| Provider | Migrations project | Migrations folder |
+|---|---|---|
+| SQL Server | `GuideAntsApi.DataModel` | `GuideAntsApi.DataModel/Migrations` |
+| Postgres | `GuideAntsApi.DataModel.Postgres` | `GuideAntsApi.DataModel.Postgres/Migrations` |
+
+**Rule: every schema change needs one migration per provider.**
+- Generate both from the same model change, with the same name.
+- Any raw SQL (`migrationBuilder.Sql`: views, seeded rows, full-text objects) has to be written in each dialect.
+- CI enforces the rule:
+  - `migrations-in-sync` runs `has-pending-model-changes` for each provider and fails on a model change without a
+    migration.
+  - `database-parity` (`GuideAntsApi.DatabaseParity.Tests`) migrates both databases from empty and fails if their
+    tables, columns, indexes, foreign keys, views or seeded rows differ.
+
+Run these from `src/server`. The design-time factory takes the provider from the argument after `--`. Without one, it
+uses the `Database:Provider` / `Database__Provider` environment variable, and then SQL Server. If your shell sets
+`Database__Provider=Postgres`, add `-- --provider SqlServer` to the SQL Server commands.
+
+```bash
+# Add a migration (both, same name)
+dotnet ef migrations add MigrationName --project GuideAntsApi.DataModel/GuideAntsApi.DataModel.csproj --startup-project GuideAntsApi/GuideAntsApi.csproj
+dotnet ef migrations add MigrationName --project GuideAntsApi.DataModel.Postgres/GuideAntsApi.DataModel.Postgres.csproj --startup-project GuideAntsApi/GuideAntsApi.csproj -- --provider Postgres
+
+# Check that each provider's migrations match the model (what CI runs)
+dotnet ef migrations has-pending-model-changes --project GuideAntsApi.DataModel/GuideAntsApi.DataModel.csproj --startup-project GuideAntsApi/GuideAntsApi.csproj
+dotnet ef migrations has-pending-model-changes --project GuideAntsApi.DataModel.Postgres/GuideAntsApi.DataModel.Postgres.csproj --startup-project GuideAntsApi/GuideAntsApi.csproj -- --provider Postgres
+
+# Apply migrations (the API also migrates on startup). The connection string comes from ConnectionStrings__DefaultConnection,
+# else the factory's local default (SQL Server localhost,1434; Postgres localhost:5433, database guideants-dev).
+dotnet ef database update --project GuideAntsApi.DataModel/GuideAntsApi.DataModel.csproj --startup-project GuideAntsApi/GuideAntsApi.csproj
+dotnet ef database update --project GuideAntsApi.DataModel.Postgres/GuideAntsApi.DataModel.Postgres.csproj --startup-project GuideAntsApi/GuideAntsApi.csproj -- --provider Postgres
+
+# Remove the last migration (do it for both)
+dotnet ef migrations remove --project GuideAntsApi.DataModel/GuideAntsApi.DataModel.csproj --startup-project GuideAntsApi/GuideAntsApi.csproj
+dotnet ef migrations remove --project GuideAntsApi.DataModel.Postgres/GuideAntsApi.DataModel.Postgres.csproj --startup-project GuideAntsApi/GuideAntsApi.csproj -- --provider Postgres
+```
+
+Postgres notes:
+- **Version:** it needs Postgres 18 or later with pgvector. For a local server, run
+  `docker compose -f docker/docker-compose.pgsql.yml up -d` from the repository root (host port 5433).
+- **The baseline:** `PostgresBaselineV1` reproduces the SQL Server schema and seeded rows after all the SQL Server
+  migrations. Most SQL Server-specific model details are translated by
+  `GuideAntsApi.DataModel/Database/PostgresModelAdapter.cs`: column types, default SQL, filters, row versions and the
+  collation.
+- **Names:** Postgres shortens names longer than 63 bytes, so keep new constraint and index names shorter if code
+  matches them by name.
+- **Foreign keys:** a new NO ACTION foreign key that a cascade can outrun needs `DEFERRABLE INITIALLY DEFERRED` in the
+  Postgres migration. A parity test fails until it has one.
+- **The rest:** every known difference between the two databases is in `docs/postgres-parity-report.md`.
+
+The rest of this file describes the SQL Server commands; the Postgres equivalents add the Postgres `--project` and
+`-- --provider Postgres`, as above.
+
 ## IMPORTANT: Project Structure and Paths
 
 ### Project Layout

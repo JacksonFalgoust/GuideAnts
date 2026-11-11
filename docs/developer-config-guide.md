@@ -184,13 +184,14 @@ ASP.NET Core 8 solution with multiple projects.
 ### Solution structure (`GuideAntsApi.sln`)
 
 - `GuideAntsApi` — main Web API host + serves built UI from `Ui:RootPath`
-- `GuideAntsApi.DataModel` (+ tests) — EF Core models, `DbContext`, migrations
+- `GuideAntsApi.DataModel` (+ tests) — EF Core models, `DbContext`, SQL Server migrations
+- `GuideAntsApi.DataModel.Postgres` — Postgres migrations (see [Postgres instead of SQL Server](#postgres-instead-of-sql-server))
 - `GuideAntsApi.BackgroundJobs` — extraction / transcription / indexing / embeddings / retention
 - `GuideAnts.Usage` — usage & cost tracking
 - `AntRunner.Chat` family (Abstractions, OpenAI, Anthropic, GoogleGemini, HuggingFace, LlamaCpp, OpenRouter, ToolCalling) — provider-routed chat runtime
 - `HtmlAgilityPackExtensions` — HTML utilities
 - `ScriptExecutionAgent` — staged into the AI image during build
-- `GuideAntsApi.Tests`, `GuideAntsApi.IntegrationTests`
+- `GuideAntsApi.Tests`, `GuideAntsApi.IntegrationTests`, `GuideAntsApi.DatabaseParity.Tests` (compares the SQL Server and Postgres schemas; needs Docker)
 
 ### Runtime dependencies (from API project)
 
@@ -212,6 +213,7 @@ The API ships *example* settings only; you must create the live files yourself:
 Minimum config keys needed for local dev:
 
 - `ConnectionStrings:DefaultConnection` — SQL Server. Default points to `localhost,1434` which matches the compose-published port for `mssql-express`.
+- `Database:Provider` — optional: `SqlServer` (the default when it's missing) or `Postgres`. See [Postgres instead of SQL Server](#postgres-instead-of-sql-server).
 - `Jwt:Issuer`, `Jwt:Audience`, `Jwt:LifetimeMinutes`, `Jwt:SigningKey` — first-party auth token settings. Keep `SigningKey` out of source control (use `dotnet user-secrets` or environment variable `Jwt__SigningKey` for local host runs).
 - `SettingsSecrets:ActiveKeyId` + `SettingsSecrets:Keys:<id>` — a base64-encoded 16/24/32-byte AES key. The container default `MDEyMzQ1Njc4OUFCQ0RFRjAxMjM0NTY3ODlBQkNERUY=` is `local-dev` only.
 - `LocalServiceHosts:*` URLs — six keys pointing at the AI/docling containers (probed by the Settings → Infrastructure UI). Docling probes use `{DocumentIntelligenceBaseUrl}/version`.
@@ -260,6 +262,9 @@ SQL Server stays the default. To run on Postgres, use **PostgreSQL 18 or later w
 - **Launchers:** `--db sqlserver|postgres`, or `GA_DB_PROVIDER` when the flag is absent. `start_macos.sh` / `start_linux.sh` / `start_windows.cmd` add the override above (and refuse `--backend slim`). `installer/guideants.sh` / `guideants.cmd` swap `compose/core-*.yml` for `compose/postgres-separate.yml`, save the choice in `.installer_state.env` (so later runs and `stop_guideants.*` use it), and accept `--db` again to switch.
 - **Switching an existing stack:** stop the running stack first, then start with `--db postgres`. For the installer, run `./installer/stop_guideants.sh` (or `stop_guideants.cmd`). For `start_*`, run `docker compose -f <stack file> --env-file .env down` from the stack's folder with the **original** `-f` list. `start_*` don't pass `--remove-orphans`, and the override only puts `mssql-express` behind a profile, so starting Postgres over a running SQL Server stack leaves `mssql-express` running. A later `down` with the Postgres `-f` list doesn't remove it either. If that already happened, add `--profile sqlserver` to that `down` (no `-v`). To go back, stop the same way (the Postgres `-f` list) and start without `--db`, or with `--db sqlserver` for the installer, which remembers the choice. SQL Server and Postgres use separate databases: data doesn't move between them, and `down` without `-v` leaves both providers' volumes (`mssql_*`, `postgres_data`) untouched.
 - **Compose env:** `GA_POSTGRES_IMAGE` (default `pgvector/pgvector:0.8.7-pg18`), `GA_POSTGRES_PASSWORD` (default `YourStrong!Passw0rd`), and the existing `GA_DB_NAME`. The password goes into the Npgsql connection string unquoted, so it must not contain `;`, `=` or quotes.
+- **Migrations:** every schema change needs one migration per provider: `GuideAntsApi.DataModel` for SQL Server and `GuideAntsApi.DataModel.Postgres` for Postgres, the latter generated with `-- --provider Postgres`. CI's `migrations-in-sync` job fails when either has pending model changes, and its `database-parity` job fails when the two migrated schemas or seeded rows differ. The commands are in [`EF_COMMANDS.md`](../src/server/GuideAntsApi.DataModel/EF_COMMANDS.md).
+- **Tests:** the integration tests run on SQL Server by default. Set `GA_INTEGRATION_TEST_DB_PROVIDER=Postgres` to run them on Postgres. `GA_INTEGRATION_TEST_POSTGRES_IMAGE` overrides the image (default `pgvector/pgvector:0.8.7-pg18`), as `GA_INTEGRATION_TEST_MSSQL_IMAGE` does for SQL Server. `GuideAntsApi.DatabaseParity.Tests` starts both databases. CI runs the integration job once per provider.
+- **Known differences:** every behavioral difference between the two databases, with what was done about it and its proving test, is in [`docs/postgres-parity-report.md`](postgres-parity-report.md).
 
 ### Bootstrap requirements
 
