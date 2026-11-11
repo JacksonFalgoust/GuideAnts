@@ -9,10 +9,13 @@ FIX_MODE="0"            # 0 | 1
 INSTALLER_MODE="0"      # 0 | 1
 BACKEND_OVERRIDE=""     # cpu | cuda13 | rocm | slim | vulkan
 COMPOSE_MODE="ghcr"     # ghcr | local
+DB_PROVIDER="${GA_DB_PROVIDER:-sqlserver}"  # sqlserver | postgres; --db wins
 HEALTH_URL="http://localhost:5107/"
 HOST_MOUNT_OVERRIDE_FILE="docker-compose.host-mounts.generated.yml"
 ROCM_RUNTIME_OVERRIDE_FILE="docker-compose.rocm-runtime.generated.yml"
 VOICE_PACK_OVERRIDE_FILE="docker-compose.voice-pack.local.yml"
+POSTGRES_OVERRIDE_FILE="docker-compose.postgres.yml"
+POSTGRES_MIN_COMPOSE_VERSION="2.24.4"   # docker-compose.postgres.yml uses the !override tag
 START_COMMAND="start_linux.sh"
 DOCKER_DIR=""
 DOCKER_DIRECTORY=""
@@ -28,6 +31,8 @@ Options:
   --backend cpu|cuda13|rocm|slim|vulkan   Force backend selection. slim and vulkan are explicit only and are not auto-detected.
   --compose ghcr|local   Use GHCR compose files (default) or local build files.
   --installer            Use installer/docker compose files, volumes, and overrides.
+  --db sqlserver|postgres   Database (default sqlserver, or env GA_DB_PROVIDER). postgres adds
+                         docker-compose.postgres.yml; it needs a non-slim backend and Docker Compose 2.24.4+.
   --help                 Show this help.
 EOF
 }
@@ -139,6 +144,31 @@ select_compose_file() {
   fi
 }
 
+# 0 when `docker compose` is at least version $1 (or its version can't be read).
+compose_version_at_least() {
+  local have want="$1" i
+  local -a h w
+  have="$(docker compose version --short 2>/dev/null || true)"
+  have="${have#v}"; have="${have%%[!0-9.]*}"
+  [[ -n "$have" ]] || return 0
+  IFS=. read -r -a h <<< "$have"
+  IFS=. read -r -a w <<< "$want"
+  for i in 0 1 2; do
+    (( ${h[i]:-0} > ${w[i]:-0} )) && return 0
+    (( ${h[i]:-0} < ${w[i]:-0} )) && return 1
+  done
+  return 0
+}
+
+select_database() {
+  [[ "$DB_PROVIDER" == "postgres" ]] || return 0
+  [[ "$SELECTED_BACKEND" != "slim" ]] \
+    || fail "--db postgres needs a stack with a separate database; the slim stack's UI image bundles SQL Server. Use --backend cpu, cuda13, rocm, or vulkan."
+  [[ -f "$DOCKER_DIR/$POSTGRES_OVERRIDE_FILE" ]] || fail "Postgres override not found: $DOCKER_DIRECTORY/$POSTGRES_OVERRIDE_FILE"
+  compose_version_at_least "$POSTGRES_MIN_COMPOSE_VERSION" \
+    || fail "--db postgres needs Docker Compose $POSTGRES_MIN_COMPOSE_VERSION or later (found $(docker compose version --short 2>/dev/null)). Upgrade Docker, then rerun."
+}
+
 select_vulkan_runtime() {
   [[ "$SELECTED_BACKEND" == "vulkan" ]] || return 0
 
@@ -211,6 +241,11 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --installer) INSTALLER_MODE="1" ;;
+    --db)
+      [[ $# -ge 2 ]] || fail "Missing value for --db"
+      DB_PROVIDER="$2"
+      shift
+      ;;
     --help|-h) usage; exit 0 ;;
     *) fail "Unknown option: $1" ;;
   esac
@@ -219,16 +254,20 @@ done
 
 [[ "$COMPOSE_MODE" == "ghcr" || "$COMPOSE_MODE" == "local" ]] || fail "--compose must be ghcr or local"
 [[ -z "$BACKEND_OVERRIDE" || "$BACKEND_OVERRIDE" == "cpu" || "$BACKEND_OVERRIDE" == "cuda13" || "$BACKEND_OVERRIDE" == "rocm" || "$BACKEND_OVERRIDE" == "slim" || "$BACKEND_OVERRIDE" == "vulkan" ]] || fail "--backend must be cpu, cuda13, rocm, slim, or vulkan"
+DB_PROVIDER="$(printf '%s' "$DB_PROVIDER" | tr '[:upper:]' '[:lower:]')"
+[[ "$DB_PROVIDER" == "sqlserver" || "$DB_PROVIDER" == "postgres" ]] || fail "--db (or GA_DB_PROVIDER) must be sqlserver or postgres"
 
 apply_docker_layout
 check_prereqs
 detect_backend
 select_compose_file
+select_database
 select_vulkan_runtime
 select_rocm_runtime "$DOCKER_DIR"
 
 log "Selected backend: $SELECTED_BACKEND"
 log "Compose file: $DOCKER_DIRECTORY/$COMPOSE_FILE"
+[[ "$DB_PROVIDER" == "postgres" ]] && log "Database: Postgres ($DOCKER_DIRECTORY/$POSTGRES_OVERRIDE_FILE)"
 
 if [[ "$MODE" == "doctor" ]]; then
   log "Doctor mode complete. No changes were made."
@@ -262,6 +301,11 @@ if [[ -f "$VOICE_PACK_OVERRIDE_FILE" ]]; then
     warn "Ignoring invalid voice pack override $DOCKER_DIRECTORY/$VOICE_PACK_OVERRIDE_FILE."
   fi
 fi
+CHECK_FILES="-f $DOCKER_DIRECTORY/$COMPOSE_FILE"
+if [[ "$DB_PROVIDER" == "postgres" ]]; then
+  compose_args+=(-f "$POSTGRES_OVERRIDE_FILE")
+  CHECK_FILES+=" -f $DOCKER_DIRECTORY/$POSTGRES_OVERRIDE_FILE"
+fi
 docker compose "${compose_args[@]}" --env-file "$ENV_FILE" up -d
 popd >/dev/null
 
@@ -269,7 +313,7 @@ if wait_for_health; then
   log "GuideAnts is up: $HEALTH_URL"
   open_browser
 else
-  warn "GuideAnts did not pass health check in time. Check: docker compose -f $DOCKER_DIRECTORY/$COMPOSE_FILE ps"
+  warn "GuideAnts did not pass health check in time. Check: docker compose $CHECK_FILES ps"
 fi
 
 save_state

@@ -9,6 +9,7 @@ docker compose down on the matching compose fragment list.
   Linux / macOS : ./stop_guideants.sh
 
 Flags:
+  --db <sqlserver|postgres>  Override the saved database provider (env GA_DB_PROVIDER).
   --help   Show this help.
 #>
 
@@ -21,6 +22,7 @@ $script:DockerDir = Join-Path $script:RootDir 'docker'
 $script:EnvFile = Join-Path $script:DockerDir '.env'
 $script:ImagesEnvFile = Join-Path $script:DockerDir 'images.env'
 $script:StateFile = Join-Path $script:RootDir '.installer_state.env'
+$script:DbProviderOverride = if ([string]::IsNullOrWhiteSpace($env:GA_DB_PROVIDER)) { '' } else { [string]$env:GA_DB_PROVIDER }
 
 . (Join-Path $script:ScriptDir 'installer-wizard.ps1')
 
@@ -45,6 +47,7 @@ Stop the GuideAnts stack that was started by guideants.cmd / guideants.sh.
 Reads saved selections from .installer_state.env and runs docker compose down.
 
 Flags:
+  --db <sqlserver|postgres>  Override the saved database provider (env GA_DB_PROVIDER).
   --help   Show this help.
 '@
 }
@@ -71,10 +74,20 @@ function Parse-Arguments {
     $rawArgs = @($args)
     for ($i = 0; $i -lt $rawArgs.Count; $i++) {
         switch ($rawArgs[$i]) {
+            '--db' {
+                if ($i + 1 -ge $rawArgs.Count) { Stop-WithError 'Missing value for --db' }
+                $script:DbProviderOverride = [string]$rawArgs[$i + 1]
+                $i++
+            }
             '--help' { Show-Usage; exit 0 }
             '-h'     { Show-Usage; exit 0 }
             default  { Stop-WithError "Unknown option: $($rawArgs[$i]) (try --help)" }
         }
+    }
+
+    $script:DbProviderOverride = $script:DbProviderOverride.ToLowerInvariant()
+    if ($script:DbProviderOverride -ne '' -and $script:DbProviderOverride -notin @('sqlserver', 'postgres')) {
+        Stop-WithError '--db (or GA_DB_PROVIDER) must be sqlserver or postgres'
     }
 }
 
@@ -90,9 +103,11 @@ function Invoke-Main {
         -StateFile $script:StateFile `
         -IncludeHostMountOverride `
         -IncludeVoicePackOverride `
-        -IncludeRocmOverride
+        -IncludeRocmOverride `
+        -DbProviderOverride $script:DbProviderOverride
 
     $selection = $built.Selection
+    if ($selection.DbProvider -eq 'postgres') { Write-Log 'Database: Postgres' }
     Write-Log "Stopping GuideAnts (DB=$($selection.DbLayout), AI=$($selection.AiBackend))..."
 
     if ($selection.AiBackend -eq 'rocm') {

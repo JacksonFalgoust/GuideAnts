@@ -17,6 +17,7 @@
 #   --doctor                 Run checks only; change nothing.
 #   --backend <none|cpu|cuda13|rocm|slim|vulkan>   Skip the AI backend prompt.
 #   --compose <ghcr|local>   Use GHCR images (default) or local build images.
+#   --db <sqlserver|postgres>  Database (default: the saved one, else sqlserver; env GA_DB_PROVIDER).
 #   --mount <path>           Mount a host folder into a project (requires prior login).
 #   --unmount                Interactively remove a host folder mount (requires prior login).
 #   --reconfigure            Re-prompt AI backend + optionals (DB layout is fixed from first install).
@@ -41,6 +42,7 @@ MODE="install"            # install | doctor
 BACKEND_OVERRIDE=""       # none | cpu | cuda13 | rocm | slim | vulkan
 AI_BACKEND_OVERRIDE=""
 DB_LAYOUT_OVERRIDE=""
+DB_PROVIDER_OVERRIDE="${GA_DB_PROVIDER:-}"  # sqlserver | postgres; --db wins
 COMPONENTS_OVERRIDE=()
 COMPOSE_MODE="ghcr"       # ghcr | local
 ASSUME_YES="0"            # 0 | 1
@@ -64,7 +66,7 @@ export ROCM_RUNTIME_WARN_FN=warn
 . "$ROOT_DIR/scripts/installer-wizard.sh"
 
 usage() {
-  sed -n '3,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '3,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 # --- argument parsing --------------------------------------------------------
@@ -80,6 +82,9 @@ while [[ $# -gt 0 ]]; do
     --compose)
       [[ $# -ge 2 ]] || fail "Missing value for --compose"
       COMPOSE_MODE="$2"; shift ;;
+    --db)
+      [[ $# -ge 2 ]] || fail "Missing value for --db"
+      DB_PROVIDER_OVERRIDE="$2"; shift ;;
     --mount)
       [[ $# -ge 2 ]] || fail "Missing value for --mount"
       MOUNT_PATH="$2"; shift ;;
@@ -94,6 +99,9 @@ done
   || fail "--backend must be none, cpu, cuda13, rocm, slim, or vulkan"
 [[ "$COMPOSE_MODE" == "ghcr" || "$COMPOSE_MODE" == "local" ]] \
   || fail "--compose must be ghcr or local"
+DB_PROVIDER_OVERRIDE="$(printf '%s' "$DB_PROVIDER_OVERRIDE" | tr '[:upper:]' '[:lower:]')"
+[[ -z "$DB_PROVIDER_OVERRIDE" || "$DB_PROVIDER_OVERRIDE" =~ ^(sqlserver|postgres)$ ]] \
+  || fail "--db (or GA_DB_PROVIDER) must be sqlserver or postgres"
 
 # =============================================================================
 # 1. Detect OS / shell environment
@@ -986,7 +994,7 @@ open_browser() {
 save_state() {
   local components_csv; components_csv="$(IFS=,; echo "${SELECTED_COMPONENTS[*]}")"
   local fragments_csv; fragments_csv="$(IFS=,; echo "${SELECTED_COMPOSE_FRAGMENTS[*]}")"
-  installer_save_state "$SELECTED_DB_LAYOUT" "$SELECTED_AI_BACKEND" "$components_csv" "$fragments_csv" "$COMPOSE_MODE" "guideants.sh"
+  installer_save_state "$SELECTED_DB_LAYOUT" "$SELECTED_AI_BACKEND" "$components_csv" "$fragments_csv" "$COMPOSE_MODE" "guideants.sh" "$SELECTED_DB_PROVIDER"
 }
 
 # =============================================================================
@@ -1011,7 +1019,11 @@ report_resources
 AI_BACKEND_OVERRIDE="$BACKEND_OVERRIDE"
 installer_run_wizard
 SELECTED_BACKEND="$SELECTED_AI_BACKEND"
-log "DB layout: $SELECTED_DB_LAYOUT   AI: $SELECTED_AI_BACKEND   Optionals: ${SELECTED_COMPONENTS[*]:-none}"
+if [[ "$SELECTED_DB_PROVIDER" == "postgres" ]]; then
+  log "Database: Postgres   AI: $SELECTED_AI_BACKEND   Optionals: ${SELECTED_COMPONENTS[*]:-none}"
+else
+  log "DB layout: $SELECTED_DB_LAYOUT   AI: $SELECTED_AI_BACKEND   Optionals: ${SELECTED_COMPONENTS[*]:-none}"
+fi
 log "Compose fragments: ${SELECTED_COMPOSE_FRAGMENTS[*]}"
 
 select_vulkan_runtime

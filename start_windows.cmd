@@ -8,6 +8,7 @@ set "HEALTH_URL=http://localhost:5107/"
 set "HOST_MOUNT_OVERRIDE_FILE=docker-compose.host-mounts.generated.yml"
 set "ROCM_RUNTIME_OVERRIDE_FILE=docker-compose.rocm-runtime.generated.yml"
 set "VOICE_PACK_OVERRIDE_FILE=docker-compose.voice-pack.local.yml"
+set "POSTGRES_OVERRIDE_FILE=docker-compose.postgres.yml"
 set "START_COMMAND=start_windows.cmd"
 set "ENV_FILE=.env"
 
@@ -16,6 +17,8 @@ set "FIX_MODE=0"
 set "INSTALLER_MODE=0"
 set "BACKEND_OVERRIDE="
 set "COMPOSE_MODE=ghcr"
+set "DB_PROVIDER=sqlserver"
+if defined GA_DB_PROVIDER set "DB_PROVIDER=%GA_DB_PROVIDER%"
 
 :parse_args
 if "%~1"=="" goto args_done
@@ -48,6 +51,13 @@ if /I "%~1"=="--installer" (
   shift
   goto parse_args
 )
+if /I "%~1"=="--db" (
+  if "%~2"=="" call :fail Missing value for --db
+  set "DB_PROVIDER=%~2"
+  shift
+  shift
+  goto parse_args
+)
 if /I "%~1"=="--help" goto usage
 if /I "%~1"=="-h" goto usage
 call :fail Unknown option: %~1
@@ -65,6 +75,12 @@ if not exist "%DOCKER_DIR%" call :fail Docker directory not found: %DOCKER_DIR%
 if /I not "%COMPOSE_MODE%"=="ghcr" if /I not "%COMPOSE_MODE%"=="local" call :fail --compose must be ghcr or local
 if not "%BACKEND_OVERRIDE%"=="" (
   if /I not "%BACKEND_OVERRIDE%"=="cpu" if /I not "%BACKEND_OVERRIDE%"=="cuda13" if /I not "%BACKEND_OVERRIDE%"=="rocm" if /I not "%BACKEND_OVERRIDE%"=="slim" if /I not "%BACKEND_OVERRIDE%"=="vulkan" call :fail --backend must be cpu, cuda13, rocm, slim, or vulkan
+)
+if /I "%DB_PROVIDER%"=="sqlserver" set "DB_PROVIDER=sqlserver"
+if /I "%DB_PROVIDER%"=="postgres" set "DB_PROVIDER=postgres"
+if not "%DB_PROVIDER%"=="sqlserver" if not "%DB_PROVIDER%"=="postgres" (
+  call :fail --db and GA_DB_PROVIDER must be sqlserver or postgres
+  exit /b 1
 )
 
 call :log Running preflight checks...
@@ -84,6 +100,8 @@ call :check_wsl
 call :detect_backend
 call :validate_backend
 call :select_compose_file
+call :select_database
+if errorlevel 1 exit /b 1
 call :select_vulkan_runtime
 call :select_rocm_runtime
 
@@ -92,6 +110,7 @@ if "%INSTALLER_MODE%"=="1" (
 )
 call :log Selected backend: %SELECTED_BACKEND%
 call :log Compose file: %DOCKER_DIRECTORY%\%COMPOSE_FILE%
+if "%DB_PROVIDER%"=="postgres" call :log Database: Postgres - %DOCKER_DIRECTORY%\%POSTGRES_OVERRIDE_FILE%
 
 if /I "%MODE%"=="doctor" (
   call :log Doctor mode complete. No changes were made.
@@ -128,6 +147,11 @@ if exist "%VOICE_PACK_OVERRIDE_FILE%" (
     call :log Including voice pack override: %VOICE_PACK_OVERRIDE_FILE%
   )
 )
+set "CHECK_FILES=-f %DOCKER_DIRECTORY%\%COMPOSE_FILE%"
+if "%DB_PROVIDER%"=="postgres" (
+  set "COMPOSE_ARGS=%COMPOSE_ARGS% -f %POSTGRES_OVERRIDE_FILE%"
+  set "CHECK_FILES=%CHECK_FILES% -f %DOCKER_DIRECTORY%\%POSTGRES_OVERRIDE_FILE%"
+)
 docker compose %COMPOSE_ARGS% --env-file "%ENV_FILE%" up -d || (
   popd
   call :fail docker compose up failed.
@@ -136,7 +160,7 @@ popd
 
 call :wait_for_health
 if errorlevel 1 (
-  call :warn GuideAnts did not pass health check in time. Check: docker compose -f %DOCKER_DIRECTORY%\%COMPOSE_FILE% ps
+  call :warn GuideAnts did not pass health check in time. Check: docker compose %CHECK_FILES% ps
 ) else (
   call :log GuideAnts is up: %HEALTH_URL%
   start "" "%HEALTH_URL%"
@@ -258,6 +282,34 @@ if /I "%COMPOSE_MODE%"=="local" (
 )
 exit /b 0
 
+:select_database
+if not "%DB_PROVIDER%"=="postgres" exit /b 0
+if /I "%SELECTED_BACKEND%"=="slim" (
+  call :fail --db postgres needs a stack with a separate database. The slim stack UI image bundles SQL Server. Use --backend cpu, cuda13, rocm, or vulkan.
+  exit /b 1
+)
+if not exist "%DOCKER_DIR%\%POSTGRES_OVERRIDE_FILE%" (
+  call :fail Postgres override not found: %DOCKER_DIRECTORY%\%POSTGRES_OVERRIDE_FILE%
+  exit /b 1
+)
+rem docker-compose.postgres.yml uses the override YAML tag, so it needs Docker Compose 2.24.4 or later.
+set "CV_MAJOR=" & set "CV_MINOR=" & set "CV_PATCH="
+for /f "tokens=1-3 delims=.-v" %%a in ('docker compose version --short 2^>nul') do (
+  set "CV_MAJOR=%%a"
+  set "CV_MINOR=%%b"
+  set "CV_PATCH=%%c"
+)
+if not defined CV_MAJOR exit /b 0
+if not defined CV_MINOR set "CV_MINOR=0"
+if not defined CV_PATCH set "CV_PATCH=0"
+set /a CV_NUM=CV_MAJOR*1000000+CV_MINOR*1000+CV_PATCH >nul 2>nul
+if errorlevel 1 exit /b 0
+if %CV_NUM% LSS 2024004 (
+  call :fail --db postgres needs Docker Compose 2.24.4 or later. Upgrade Docker Desktop, then rerun.
+  exit /b 1
+)
+exit /b 0
+
 :select_vulkan_runtime
 if /I not "%SELECTED_BACKEND%"=="vulkan" exit /b 0
 call :log Vulkan: Docker Desktop -^> Mesa dzn over D3D12 (/dev/dxg). Using built-in defaults (no env).
@@ -312,5 +364,7 @@ echo   --fix                  Attempt limited auto-remediation where possible.
 echo   --backend cpu^|cuda13^|rocm^|slim^|vulkan   Force backend selection. slim and vulkan are explicit only and are not auto-detected.
 echo   --compose ghcr^|local   Use GHCR compose files ^(default^) or local build files.
 echo   --installer            Use installer/docker compose files, volumes, and overrides.
+echo   --db sqlserver^|postgres   Database ^(default sqlserver, or env GA_DB_PROVIDER^). postgres adds
+echo                          docker-compose.postgres.yml. It needs a non-slim backend and Docker Compose 2.24.4+.
 echo   --help                 Show this help.
 exit /b 0

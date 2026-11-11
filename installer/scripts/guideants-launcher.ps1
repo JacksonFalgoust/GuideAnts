@@ -17,6 +17,7 @@ Flags:
   --doctor                 Run checks only; change nothing.
   --backend <none|cpu|cuda13|rocm|slim|vulkan>   Skip the AI backend prompt.
   --compose <ghcr|local>   Use GHCR images (default) or local build images.
+  --db <sqlserver|postgres>  Database (default: the saved one, else sqlserver; env GA_DB_PROVIDER).
   --mount <path>           Mount a host folder into a project (requires prior login).
   --unmount                Interactively remove a host folder mount (requires prior login).
   --reconfigure            Re-prompt AI backend and optionals (DB layout stays fixed after first install).
@@ -55,12 +56,14 @@ $script:DockerDirectory = 'docker'
 $script:Mode = 'install'
 $script:BackendOverride = ''
 $script:ComposeMode = 'ghcr'
+$script:DbProviderOverride = if ([string]::IsNullOrWhiteSpace($env:GA_DB_PROVIDER)) { '' } else { [string]$env:GA_DB_PROVIDER }
 $script:AssumeYes = $false
 $script:Reconfigure = $false
 $script:InstallRocmWsl = $false
 $script:MountPath = ''
 $script:Unmount = $false
 $script:SelectedDbLayout = 'bundled'
+$script:SelectedDbProvider = 'sqlserver'
 $script:SelectedAiBackend = 'slim'
 $script:SelectedComponents = @()
 $script:SelectedComposeFragments = @()
@@ -117,6 +120,7 @@ Flags:
   --doctor                 Run checks only; change nothing.
   --backend <none|cpu|cuda13|rocm|slim|vulkan>   Skip the AI backend prompt.
   --compose <ghcr|local>   Use GHCR images (default) or local build images.
+  --db <sqlserver|postgres>  Database (default: the saved one, else sqlserver; env GA_DB_PROVIDER).
   --mount <path>           Mount a host folder into a project (requires prior login).
   --unmount                Interactively remove a host folder mount (requires prior login).
   --reconfigure            Re-prompt AI backend and optionals (DB layout stays fixed after first install).
@@ -204,6 +208,11 @@ function Parse-Arguments {
                 $script:ComposeMode = [string]$rawArgs[$i + 1]
                 $i++
             }
+            '--db' {
+                if ($i + 1 -ge $rawArgs.Count) { Stop-WithError 'Missing value for --db' }
+                $script:DbProviderOverride = [string]$rawArgs[$i + 1]
+                $i++
+            }
             '--mount' {
                 if ($i + 1 -ge $rawArgs.Count) { Stop-WithError 'Missing value for --mount' }
                 $script:MountPath = [string]$rawArgs[$i + 1]
@@ -230,6 +239,11 @@ function Parse-Arguments {
 
     if ($script:ComposeMode -notin @('ghcr', 'local')) {
         Stop-WithError '--compose must be ghcr or local'
+    }
+
+    $script:DbProviderOverride = $script:DbProviderOverride.ToLowerInvariant()
+    if ($script:DbProviderOverride -ne '' -and $script:DbProviderOverride -notin @('sqlserver', 'postgres')) {
+        Stop-WithError '--db (or GA_DB_PROVIDER) must be sqlserver or postgres'
     }
 }
 
@@ -1401,7 +1415,8 @@ function Save-State {
         -Components $script:SelectedComponents `
         -ComposeFiles $script:SelectedComposeFragments `
         -ComposeMode $script:ComposeMode `
-        -StartCommand 'guideants.cmd'
+        -StartCommand 'guideants.cmd' `
+        -DbProvider $script:SelectedDbProvider
 }
 
 function Ensure-ShellScriptsUseLf {
@@ -1480,7 +1495,7 @@ function Start-GuideAntsStack {
         Invoke-InstallerStartStack `
             -ComposeArgs $script:ComposeArgs `
             -EnvFile $script:EnvFile `
-            -DbLayout $script:SelectedDbLayout `
+            -DbLayout (Get-InstallerDbKey -DbLayout $script:SelectedDbLayout -DbProvider $script:SelectedDbProvider) `
             -AiBackend $script:SelectedAiBackend `
             -Components $script:SelectedComponents `
             -ComposeMode $script:ComposeMode `
@@ -1514,10 +1529,16 @@ function Invoke-Main {
     Invoke-InstallerWizard `
         -StateFile $script:StateFile `
         -Reconfigure:$script:Reconfigure `
+        -DbProviderOverride $script:DbProviderOverride `
         -AiBackendOverride $aiOverride `
         -AssumeYes:$script:AssumeYes
 
-    Write-Log "DB layout: $($script:SelectedDbLayout)   AI: $($script:SelectedAiBackend)   Optionals: $($script:SelectedComponents -join ', ')"
+    if ($script:SelectedDbProvider -eq 'postgres') {
+        Write-Log "Database: Postgres   AI: $($script:SelectedAiBackend)   Optionals: $($script:SelectedComponents -join ', ')"
+    }
+    else {
+        Write-Log "DB layout: $($script:SelectedDbLayout)   AI: $($script:SelectedAiBackend)   Optionals: $($script:SelectedComponents -join ', ')"
+    }
     Write-Log "Compose fragments: $($script:SelectedComposeFragments -join ', ')"
 
     Select-VulkanRuntime

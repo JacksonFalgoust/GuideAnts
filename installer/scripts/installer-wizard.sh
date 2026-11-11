@@ -23,12 +23,26 @@ installer_docling_fragment() {
   [[ "$1" == "cuda13" ]] && echo "docling-cuda.yml" || echo "docling-cpu.yml"
 }
 
+# The database choice the fragment helpers take: the SQL Server layout (bundled | separate),
+# or "postgres", which always runs as its own container and ignores the SQL Server layout.
+installer_db_key() {
+  if [[ "${2:-sqlserver}" == "postgres" ]]; then echo postgres; else echo "$1"; fi
+}
+
+installer_db_fragment() {
+  case "$1" in
+    postgres) echo "postgres-separate.yml" ;;
+    separate) echo "core-separate.yml" ;;
+    *) echo "core-bundled.yml" ;;
+  esac
+}
+
 installer_compose_fragments() {
   local db_layout="$1" ai_backend="$2"
   shift 2
   local components=("$@")
   local files=(base.yml)
-  if [[ "$db_layout" == "separate" ]]; then files+=(core-separate.yml); else files+=(core-bundled.yml); fi
+  files+=("$(installer_db_fragment "$db_layout")")
   if [[ "$ai_backend" != "none" ]]; then files+=("ai-${ai_backend}.yml"); fi
   local c
   for c in "${components[@]}"; do
@@ -84,6 +98,8 @@ installer_state_get() {
 installer_legacy_state() {
   local cf
   DB_LAYOUT="$(installer_state_get DB_LAYOUT "$STATE_FILE")"
+  DB_PROVIDER="$(installer_state_get DB_PROVIDER "$STATE_FILE")"
+  [[ "$DB_PROVIDER" == "postgres" ]] || DB_PROVIDER=sqlserver
   AI_BACKEND="$(installer_state_get AI_BACKEND "$STATE_FILE")"
   COMPONENTS="$(installer_state_get COMPONENTS "$STATE_FILE")"
   COMPOSE_MODE="$(installer_state_get COMPOSE_MODE "$STATE_FILE")"
@@ -103,7 +119,7 @@ installer_legacy_state() {
     cf="$(installer_state_get COMPOSE_FILE "$STATE_FILE")"
     if [[ -n "$cf" ]]; then
       IFS=',' read -r -a comp_array <<< "$COMPONENTS"
-      mapfile -t _legacy_fragments < <(installer_compose_fragments "$DB_LAYOUT" "$AI_BACKEND" "${comp_array[@]}")
+      mapfile -t _legacy_fragments < <(installer_compose_fragments "$(installer_db_key "$DB_LAYOUT" "$DB_PROVIDER")" "$AI_BACKEND" "${comp_array[@]}")
       COMPOSE_FILES="$(IFS=,; echo "${_legacy_fragments[*]}")"
     fi
   fi
@@ -111,10 +127,11 @@ installer_legacy_state() {
 }
 
 installer_save_state() {
-  local db="$1" ai="$2" components_csv="$3" compose_files_csv="$4" mode="$5" start_cmd="$6"
+  local db="$1" ai="$2" components_csv="$3" compose_files_csv="$4" mode="$5" start_cmd="$6" db_provider="${7:-sqlserver}"
   local epoch; epoch="$(date +%s)"
   cat > "$STATE_FILE" <<EOF
 DB_LAYOUT=${db}
+DB_PROVIDER=${db_provider}
 AI_BACKEND=${ai}
 BACKEND=${ai}
 COMPONENTS=${components_csv}
@@ -367,6 +384,7 @@ installer_services_for_selection() {
   shift 2
   local components=("$@") services=()
   [[ "$db" == "separate" ]] && services+=(mssql-express)
+  [[ "$db" == "postgres" ]] && services+=(postgres)
   services+=(guideants-webapi-ui)
   [[ "$ai" != "none" ]] && services+=(guideants-ai)
   local c
@@ -382,20 +400,23 @@ installer_services_for_selection() {
 }
 
 installer_active_services() {
-  mapfile -t ACTIVE_SERVICES < <(installer_services_for_selection "$SELECTED_DB_LAYOUT" "$SELECTED_AI_BACKEND" "${SELECTED_COMPONENTS[@]}")
+  mapfile -t ACTIVE_SERVICES < <(installer_services_for_selection "$(installer_db_key "$SELECTED_DB_LAYOUT" "${SELECTED_DB_PROVIDER:-sqlserver}")" "$SELECTED_AI_BACKEND" "${SELECTED_COMPONENTS[@]}")
 }
 
+# Optional 6th argument: a database provider (sqlserver | postgres) that replaces the saved
+# one, swapping the database fragment in the saved list (stop_guideants.sh --db).
 installer_build_compose_args_from_state() {
   local root_dir="$1" state_file="$2"
-  local include_host="${3:-0}" include_voice="${4:-0}" include_rocm="${5:-0}"
+  local include_host="${3:-0}" include_voice="${4:-0}" include_rocm="${5:-0}" db_provider="${6:-}"
   STATE_FILE="$state_file"
   installer_legacy_state
+  [[ -n "$db_provider" ]] && DB_PROVIDER="$db_provider"
   local files=() comp_array=()
   if [[ -n "${COMPOSE_FILES:-}" ]]; then
     IFS=',' read -r -a files <<< "$COMPOSE_FILES"
   else
     [[ -n "${COMPONENTS:-}" ]] && IFS=',' read -r -a comp_array <<< "$COMPONENTS"
-    mapfile -t files < <(installer_compose_fragments "$DB_LAYOUT" "$AI_BACKEND" "${comp_array[@]}")
+    mapfile -t files < <(installer_compose_fragments "$(installer_db_key "$DB_LAYOUT" "$DB_PROVIDER")" "$AI_BACKEND" "${comp_array[@]}")
   fi
   COMPOSE_ARGS=(--project-directory "$root_dir/docker")
   local f rel trimmed
@@ -403,6 +424,12 @@ installer_build_compose_args_from_state() {
     trimmed="${f#"${f%%[![:space:]]*}"}"
     trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
     [[ -n "$trimmed" ]] || continue
+    if [[ -n "$db_provider" ]]; then
+      case "$trimmed" in
+        core-bundled.yml|core-separate.yml|postgres-separate.yml)
+          trimmed="$(installer_db_fragment "$(installer_db_key "$DB_LAYOUT" "$DB_PROVIDER")")" ;;
+      esac
+    fi
     rel="$root_dir/docker/$INSTALLER_COMPOSE_DIR/$trimmed"
     [[ -f "$rel" ]] || fail "Compose fragment not found: $rel"
     COMPOSE_ARGS+=(-f "$rel")
@@ -476,11 +503,11 @@ installer_select_ai_backend() {
 }
 
 installer_run_wizard() {
-  local use_saved=0 prior_db="" prior_ai="" prior_components="" reconfigure_from_saved=0
+  local use_saved=0 prior_db="" prior_db_provider="" prior_ai="" prior_components="" reconfigure_from_saved=0
   local -a prior_components_list=()
   if [[ -f "$STATE_FILE" ]]; then
     installer_legacy_state
-    prior_db="$DB_LAYOUT"; prior_ai="$AI_BACKEND"; prior_components="$COMPONENTS"
+    prior_db="$DB_LAYOUT"; prior_db_provider="$DB_PROVIDER"; prior_ai="$AI_BACKEND"; prior_components="$COMPONENTS"
     [[ -n "$prior_components" ]] && IFS=',' read -r -a prior_components_list <<< "$prior_components"
   fi
 
@@ -490,10 +517,20 @@ installer_run_wizard() {
     reconfigure_from_saved=1
   fi
 
+  # Database provider: --db / GA_DB_PROVIDER, else the saved one, else SQL Server.
+  # Switching it points the install at a different, empty database (nothing is migrated).
+  SELECTED_DB_PROVIDER="${DB_PROVIDER_OVERRIDE:-${prior_db_provider:-sqlserver}}"
+  if [[ -n "$prior_db_provider" && "$prior_db_provider" != "$SELECTED_DB_PROVIDER" ]]; then
+    installer_warn "Database provider changed: $prior_db_provider -> $SELECTED_DB_PROVIDER. GuideAnts will use that provider's database, which starts empty; nothing is migrated."
+  fi
+
   # DB layout is first-install only and immutable afterwards.
   if [[ -n "$prior_db" ]]; then
     SELECTED_DB_LAYOUT="$prior_db"
     installer_log "Using saved DB layout: $SELECTED_DB_LAYOUT"
+  elif [[ "$SELECTED_DB_PROVIDER" == "postgres" ]]; then
+    # Postgres always runs as its own container; the SQL Server layout keeps its default.
+    SELECTED_DB_LAYOUT=bundled
   else
     printf '\n  Database layout:\n'
     printf '    1) Bundled webapi-ui-mssql (~7.3 GB)\n'
@@ -570,7 +607,7 @@ installer_run_wizard() {
     done
   fi
 
-  mapfile -t SELECTED_COMPOSE_FRAGMENTS < <(installer_compose_fragments "$SELECTED_DB_LAYOUT" "$SELECTED_AI_BACKEND" "${SELECTED_COMPONENTS[@]}")
+  mapfile -t SELECTED_COMPOSE_FRAGMENTS < <(installer_compose_fragments "$(installer_db_key "$SELECTED_DB_LAYOUT" "$SELECTED_DB_PROVIDER")" "$SELECTED_AI_BACKEND" "${SELECTED_COMPONENTS[@]}")
   if [[ -n "$prior_ai" && "$prior_ai" != "$SELECTED_AI_BACKEND" ]]; then
     installer_log "AI backend changed: $prior_ai -> $SELECTED_AI_BACKEND"
   fi

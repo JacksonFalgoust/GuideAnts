@@ -143,8 +143,12 @@ function Get-InstallerSelectionFromState {
         $components = @($state['COMPONENTS'] -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
     }
 
+    $dbProvider = 'sqlserver'
+    if ($state.ContainsKey('DB_PROVIDER') -and [string]$state['DB_PROVIDER'] -eq 'postgres') { $dbProvider = 'postgres' }
+
     return [pscustomobject]@{
         DbLayout = [string]$state['DB_LAYOUT']
+        DbProvider = $dbProvider
         AiBackend = [string]$state['AI_BACKEND']
         Components = $components
         ComposeMode = [string]$state['COMPOSE_MODE']
@@ -158,6 +162,24 @@ function Get-InstallerDoclingFragment {
     return 'docling-cpu.yml'
 }
 
+# The database choice the fragment helpers take: the SQL Server layout (bundled | separate),
+# or 'postgres', which always runs as its own container and ignores the SQL Server layout.
+function Get-InstallerDbKey {
+    param(
+        [Parameter(Mandatory = $true)][string]$DbLayout,
+        [string]$DbProvider = 'sqlserver'
+    )
+    if ($DbProvider -eq 'postgres') { return 'postgres' }
+    return $DbLayout
+}
+
+function Get-InstallerDbFragment {
+    param([Parameter(Mandatory = $true)][string]$DbLayout)
+    if ($DbLayout -eq 'postgres') { return 'postgres-separate.yml' }
+    if ($DbLayout -eq 'separate') { return 'core-separate.yml' }
+    return 'core-bundled.yml'
+}
+
 function Get-InstallerComposeFragments {
     param(
         [Parameter(Mandatory = $true)][string]$DbLayout,
@@ -167,12 +189,7 @@ function Get-InstallerComposeFragments {
 
     $files = New-Object System.Collections.Generic.List[string]
     $files.Add('base.yml') | Out-Null
-    if ($DbLayout -eq 'separate') {
-        $files.Add('core-separate.yml') | Out-Null
-    }
-    else {
-        $files.Add('core-bundled.yml') | Out-Null
-    }
+    $files.Add((Get-InstallerDbFragment -DbLayout $DbLayout)) | Out-Null
 
     if ($AiBackend -ne 'none') {
         $files.Add("ai-$AiBackend.yml") | Out-Null
@@ -391,12 +408,14 @@ function Save-InstallerState {
         [string[]]$Components = @(),
         [Parameter(Mandatory = $true)][string[]]$ComposeFiles,
         [Parameter(Mandatory = $true)][string]$ComposeMode,
-        [Parameter(Mandatory = $true)][string]$StartCommand
+        [Parameter(Mandatory = $true)][string]$StartCommand,
+        [string]$DbProvider = 'sqlserver'
     )
 
     $epoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
     $lines = @(
         "DB_LAYOUT=$DbLayout",
+        "DB_PROVIDER=$DbProvider",
         "AI_BACKEND=$AiBackend",
         "BACKEND=$AiBackend",
         "COMPONENTS=$($Components -join ',')",
@@ -696,6 +715,7 @@ function Invoke-InstallerWizard {
         [Parameter(Mandatory = $true)][string]$StateFile,
         [switch]$Reconfigure,
         [string]$DbLayoutOverride = '',
+        [string]$DbProviderOverride = '',
         [string]$AiBackendOverride = '',
         [string[]]$ComponentsOverride = @(),
         [switch]$AssumeYes
@@ -709,10 +729,23 @@ function Invoke-InstallerWizard {
     $useSaved = ($null -ne $prior -and -not $Reconfigure)
     $reconfigureFromSaved = ($null -ne $prior -and $Reconfigure)
 
+    # Database provider: --db / GA_DB_PROVIDER, else the saved one, else SQL Server.
+    # Switching it points the install at a different, empty database (nothing is migrated).
+    $script:SelectedDbProvider = 'sqlserver'
+    if (-not [string]::IsNullOrWhiteSpace($DbProviderOverride)) { $script:SelectedDbProvider = $DbProviderOverride }
+    elseif ($null -ne $prior) { $script:SelectedDbProvider = $prior.DbProvider }
+    if ($null -ne $prior -and $prior.DbProvider -ne $script:SelectedDbProvider) {
+        Write-InstallerWarn "Database provider changed: $($prior.DbProvider) -> $($script:SelectedDbProvider). GuideAnts will use that provider's database, which starts empty; nothing is migrated."
+    }
+
     # DB layout is first-install only and immutable afterwards.
     if ($null -ne $prior -and -not [string]::IsNullOrWhiteSpace($prior.DbLayout)) {
         $script:SelectedDbLayout = $prior.DbLayout
         Write-InstallerLog "Using saved DB layout: $($script:SelectedDbLayout)"
+    }
+    elseif ($script:SelectedDbProvider -eq 'postgres') {
+        # Postgres always runs as its own container; the SQL Server layout keeps its default.
+        $script:SelectedDbLayout = 'bundled'
     }
     else {
         Write-Host ''
@@ -799,7 +832,8 @@ function Invoke-InstallerWizard {
         }
     }
 
-    $script:SelectedComposeFragments = @(Get-InstallerComposeFragments -DbLayout $script:SelectedDbLayout -AiBackend $script:SelectedAiBackend -Components $script:SelectedComponents)
+    $dbKey = Get-InstallerDbKey -DbLayout $script:SelectedDbLayout -DbProvider $script:SelectedDbProvider
+    $script:SelectedComposeFragments = @(Get-InstallerComposeFragments -DbLayout $dbKey -AiBackend $script:SelectedAiBackend -Components $script:SelectedComponents)
     $est = Get-InstallerEstimatedSizeGb -DbLayout $script:SelectedDbLayout -AiBackend $script:SelectedAiBackend -Components $script:SelectedComponents
     Write-InstallerLog "Selected images ~ $est GB (not including model weights downloaded later inside the AI container)."
 }
@@ -813,6 +847,7 @@ function Get-InstallerActiveServices {
 
     $services = New-Object System.Collections.Generic.List[string]
     if ($DbLayout -eq 'separate') { $services.Add('mssql-express') | Out-Null }
+    if ($DbLayout -eq 'postgres') { $services.Add('postgres') | Out-Null }
     $services.Add('guideants-webapi-ui') | Out-Null
     if ($AiBackend -ne 'none') { $services.Add('guideants-ai') | Out-Null }
     if ($Components -contains 'docling') { $services.Add('docling-serve') | Out-Null }
@@ -828,16 +863,25 @@ function Build-InstallerComposeArgsFromState {
         [Parameter(Mandatory = $true)][string]$StateFile,
         [switch]$IncludeHostMountOverride,
         [switch]$IncludeVoicePackOverride,
-        [switch]$IncludeRocmOverride
+        [switch]$IncludeRocmOverride,
+        # Replaces the saved provider and swaps the database fragment (stop --db).
+        [string]$DbProviderOverride = ''
     )
 
     $dockerDir = Join-Path $RootDir 'docker'
     $selection = Get-InstallerSelectionFromState -StateFile $StateFile
+    if (-not [string]::IsNullOrWhiteSpace($DbProviderOverride)) { $selection.DbProvider = $DbProviderOverride }
+    $dbKey = Get-InstallerDbKey -DbLayout $selection.DbLayout -DbProvider $selection.DbProvider
     $fragments = if ($selection.ComposeFiles.Count -gt 0) {
         @($selection.ComposeFiles)
     }
     else {
-        @(Get-InstallerComposeFragments -DbLayout $selection.DbLayout -AiBackend $selection.AiBackend -Components $selection.Components)
+        @(Get-InstallerComposeFragments -DbLayout $dbKey -AiBackend $selection.AiBackend -Components $selection.Components)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($DbProviderOverride)) {
+        $fragments = @($fragments | ForEach-Object {
+            if ($_ -in @('core-bundled.yml', 'core-separate.yml', 'postgres-separate.yml')) { Get-InstallerDbFragment -DbLayout $dbKey } else { $_ }
+        })
     }
 
     $args = @(Resolve-InstallerComposeArgs -DockerDir $dockerDir -FragmentFiles $fragments)
