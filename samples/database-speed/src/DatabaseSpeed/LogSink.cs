@@ -4,15 +4,19 @@ using Microsoft.Extensions.Logging;
 namespace DatabaseSpeed;
 
 /// <summary>
-/// Collects what the services log. Several of them catch their own errors and carry on (the searchers return no
-/// results, <c>JobQueueService.TryClaimAsync</c> returns no job), so a failure would otherwise look like a fast run.
-/// After each run the runner calls <see cref="ThrowIfFailed"/>: any Error, or any Warning from a category listed as
-/// fatal, fails the run. Other warnings are only counted and reported.
+/// Collects what the services log. The searchers catch their own errors, log them and return no results, so a failure
+/// would otherwise look like a fast run. After each run the runner calls <see cref="ThrowIfFailed"/>: any Error a
+/// service logs fails the run. Warnings are counted and reported.
 /// </summary>
+/// <remarks>
+/// EF's own "Failed executing DbCommand" errors are counted, not fatal. EF logs every failed attempt, including the
+/// ones its retrying execution strategy then retries successfully (SQL Server deadlock victims under the job-claim
+/// contention, for example). A failure that isn't recovered still surfaces: as an exception out of the operation, or
+/// as the service's own error log. <see cref="CommandFailures"/> records each one's error code for the report.
+/// </remarks>
 public sealed class LogSink : ILoggerProvider
 {
-    /// <summary>Categories whose warnings mean the operation didn't do its work.</summary>
-    private static readonly string[] FatalWarningCategories = ["GuideAntsApi.BackgroundJobs.JobQueueService"];
+    private const string EfCommandCategory = "Microsoft.EntityFrameworkCore.Database.Command";
 
     private readonly ConcurrentQueue<string> _failures = new();
     private readonly ConcurrentDictionary<string, int> _warnings = new();
@@ -43,7 +47,13 @@ public sealed class LogSink : ILoggerProvider
 
     private void Record(string category, LogLevel level, string message, Exception? exception)
     {
-        if (level >= LogLevel.Error || (level == LogLevel.Warning && FatalWarningCategories.Contains(category)))
+        if (level >= LogLevel.Error && category == EfCommandCategory)
+        {
+            _warnings.AddOrUpdate($"{category}: Failed executing DbCommand (error codes under each operation)", 1, (_, n) => n + 1);
+            return;
+        }
+
+        if (level >= LogLevel.Error)
         {
             _failures.Enqueue($"[{level} {category}] {message}{(exception is null ? string.Empty : $" -> {exception.GetType().Name}: {exception.Message}")}");
             return;

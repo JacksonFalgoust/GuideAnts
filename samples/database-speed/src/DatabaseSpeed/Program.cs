@@ -120,6 +120,7 @@ public static class Program
         Environment.SetEnvironmentVariable("Database:Provider", null);
         Environment.SetEnvironmentVariable("Database__Provider", null);
 
+        CommandFailures.Start();
         var plan = RunPlan.For(options.Smoke);
         var sampleRoot = FindUp(AppContext.BaseDirectory, dir => File.Exists(Path.Combine(dir, "DatabaseSpeed.sln")))
             ?? FindUp(Directory.GetCurrentDirectory(), dir => File.Exists(Path.Combine(dir, "DatabaseSpeed.sln")))
@@ -380,7 +381,8 @@ public static class Program
             "candidates (SQL Server's `CONTAINSTABLE` top-n has the same table-wide shape). Compare the *rare*, *typical*, *common* and *very common* " +
             "hybrid-search rows; each lists its table-wide match count per provider.",
         "4. **Job claims without `SKIP LOCKED`** (Task 10, by design): a contended claimer waits for the winner and then gets no job, like SQL Server. " +
-            "Read *job claims*: throughput, per-claim latency and empty claims per drain.",
+            "Read *job claims*: throughput, per-claim latency, empty claims per drain, and the failed database commands (a SQL Server " +
+            "deadlock victim, 1205, stalls a claimer for the deadlock monitor's interval before `TryClaimAsync` returns no job).",
         "5. **Stock Postgres settings**: Postgres runs the image's `postgresql.conf` (shared_buffers 128 MB, work_mem 4 MB), as " +
             "docker-compose.postgres.yml ships it, while SQL Server Developer sizes its buffer pool from the container's 8 GB. Tuning is a lever " +
             "this comparison doesn't pull.",

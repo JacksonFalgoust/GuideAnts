@@ -72,8 +72,11 @@ also removes them if the process dies. It doesn't touch any other container.
   two databases, and which one goes first alternates. The cold start does 1 discarded warm-up plus 10 measured runs.
   Only the production call is timed, with a `Stopwatch` in the harness process, so the times include EF, the client
   driver and the round trips. Each result is checked after the timer stops, and a run that did no work fails the whole
-  run instead of looking fast. Any error the services log fails the run too, because several of them swallow their
-  own errors. p95 is nearest-rank.
+  run instead of looking fast. Any error the services log fails the run too, because the searchers swallow their own
+  errors. EF's own "Failed executing DbCommand" errors are different: EF logs every failed attempt, including the ones
+  its retrying execution strategy then retries successfully, as in production (SQL Server deadlock victims under
+  job-claim contention, for example). Those are counted per operation with their error codes, their cost stays inside
+  the measured time, and an unrecovered one still fails the operation. p95 is nearest-rank.
 
 ## What it times
 
@@ -109,7 +112,10 @@ first two.
 3. **`ts_rank_cd` before `LIMIT`.** Postgres ranks every table-wide full-text match, across all projects, before it
    takes the candidates. Compare the four search rows; each one lists its table-wide match count on both databases.
 4. **No `SKIP LOCKED` in the Postgres job claim**, by design. A contended claimer waits, then gets no job, as on SQL
-   Server. Read the job-claim throughput and the empty claims per drain.
+   Server. Read the job-claim throughput, the empty claims per drain, and the failed database commands. In a local
+   full-volume check (SQL Server emulated, so its timings mean nothing), SQL Server's claim produced deadlock victims
+   (1205) under the 8-worker contention: 4 in 26 drains of 1,000 jobs. Each one stalls a claimer for the deadlock
+   monitor's interval, and then `TryClaimAsync` returns no job. Postgres had none.
 5. **Stock Postgres memory settings**, as shipped (`shared_buffers` 128 MB). SQL Server sizes its buffer pool from the
    container's memory instead.
 

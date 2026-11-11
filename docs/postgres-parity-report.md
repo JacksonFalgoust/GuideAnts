@@ -461,6 +461,13 @@ both. Its numbers are not evidence.
   table-wide shape. Compare the rare, typical, common and very common search rows; each lists its table-wide match
   count per provider.
 - **The Postgres job claim runs without `SKIP LOCKED`, by design** (#21, Task 10). A contended claimer waits, then gets
-  no job, as on SQL Server. See the throughput and the empty claims per drain.
+  no job, as on SQL Server. See the throughput, the empty claims per drain, and the failed database commands. A local
+  full-volume check (SQL Server emulated, so no timing evidence) saw SQL Server's claim produce deadlock victims (1205)
+  under the 8-worker contention: 4 in 26 drains of 1,000 jobs. Each one is caught by `TryClaimAsync`, which logs
+  "Job claim failed" and returns no job; Postgres had none. Whether this reproduces on x86 is for the CI run to show.
+- **Path-prefix plans:** the same local check showed that, at full volume, both databases read the path-prefix query
+  through `IX_NotebookFiles_NotebookId` and apply the `LIKE` as a residual filter. SQL Server doesn't seek the
+  `RelativePath` index either, so the collation limit doesn't change this query's plan. The plans are
+  architecture-independent, but they come from that local run; RESULTS.md will show them from the CI run.
 - **Postgres runs with stock memory settings** (`shared_buffers` 128 MB, as `docker-compose.postgres.yml` ships it).
   SQL Server sizes its buffer pool from the container's memory instead.

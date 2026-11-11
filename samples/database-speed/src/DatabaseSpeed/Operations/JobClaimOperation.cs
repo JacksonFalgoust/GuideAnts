@@ -12,13 +12,21 @@ namespace DatabaseSpeed.Operations;
 /// loops <c>TryClaimAsync</c> then <c>CompleteAsync</c> until every job is done. One run is one drain; the drain's wall
 /// time gives the throughput, and every successful <c>TryClaimAsync</c> is a per-claim latency sample. Neither
 /// provider's claim skips locked rows (Postgres has no <c>SKIP LOCKED</c>, by design), so a worker that picks the row
-/// another worker is claiming waits for it and then gets no job; those empty claims are counted.
+/// another worker is claiming waits for it and then gets no job; those empty claims are counted. A claim statement
+/// that fails (for example a SQL Server deadlock victim) is retried by EF's execution strategy inside
+/// <c>TryClaimAsync</c>, as in production; the runner lists those failures under the operation.
 /// </summary>
 public sealed class JobClaimOperation : IOperation
 {
     public const string JobType = "DatabaseSpeedProbe";
 
     private static readonly TimeSpan DrainTimeout = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// <c>TryClaimAsync</c> turns a database error into "no job", so a broken claim would only end at the drain timeout.
+    /// No completed job for this long means the claims keep failing.
+    /// </summary>
+    private static readonly TimeSpan StallTimeout = TimeSpan.FromMinutes(2);
     private readonly int _jobs;
     private readonly int _workers;
 
@@ -54,6 +62,7 @@ public sealed class JobClaimOperation : IOperation
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(DrainTimeout);
 
+        var lastProgressTicks = Stopwatch.GetTimestamp();
         var drain = Stopwatch.StartNew();
         var workers = Enumerable.Range(0, _workers).Select(worker => Task.Run(async () =>
         {
@@ -68,6 +77,11 @@ public sealed class JobClaimOperation : IOperation
                 claim.Stop();
                 if (job is null)
                 {
+                    if (Stopwatch.GetElapsedTime(Interlocked.Read(ref lastProgressTicks)) > StallTimeout)
+                    {
+                        throw new TimeoutException($"No job completed for {StallTimeout.TotalMinutes:0} minutes ({Volatile.Read(ref completed)} of {_jobs} done); the claims keep failing.");
+                    }
+
                     Interlocked.Increment(ref emptyClaims);
                     await Task.Yield();
                     continue;
@@ -80,6 +94,7 @@ public sealed class JobClaimOperation : IOperation
                 }
 
                 Interlocked.Increment(ref completed);
+                Interlocked.Exchange(ref lastProgressTicks, Stopwatch.GetTimestamp());
             }
         }, timeout.Token)).ToList();
         await Task.WhenAll(workers);

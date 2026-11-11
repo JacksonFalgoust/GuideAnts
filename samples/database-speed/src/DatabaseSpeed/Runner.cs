@@ -24,6 +24,7 @@ public static class Runner
             target.Log.ThrowIfFailed($"{operation.Name}: preparing {target.Name}");
         }
 
+        var failuresBefore = CommandFailures.Snapshot();
         var warmup = operation.IsColdStart ? plan.ColdStartWarmupRuns : plan.WarmupRuns;
         var measuredRuns = operation.IsColdStart ? plan.ColdStartMeasuredRuns : plan.MeasuredRuns;
         var measured = targets.ToDictionary(t => t.Provider, _ => new Measurement());
@@ -72,7 +73,12 @@ public static class Runner
             }
         }
 
-        var notes = operation.Notes(measured);
+        var notes = operation.Notes(measured).ToList();
+        var failures = CommandFailures.Since(failuresBefore);
+        notes.Add(failures.Count == 0
+            ? "Failed database commands (warm-up and measured runs): none"
+            : "Failed database commands (warm-up and measured runs; EF retried them or the service handled them, and the time is inside the measurement): " +
+              string.Join("; ", failures));
         return new OperationResult(operation.Name, operation.Description, metrics, notes);
     }
 
