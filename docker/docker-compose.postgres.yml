@@ -13,6 +13,9 @@
 services:
   postgres:
     image: ${GA_POSTGRES_IMAGE:-pgvector/pgvector:0.8.7-pg18}
+    # Launchers set GA_POSTGRES_PLATFORM=linux/arm64 on Apple Silicon, where they force amd64 for the
+    # other images. pgvector publishes arm64, so Postgres runs natively.
+    platform: ${GA_POSTGRES_PLATFORM:-linux/amd64}
     container_name: guideants-postgres
     environment:
       - POSTGRES_USER=guideants

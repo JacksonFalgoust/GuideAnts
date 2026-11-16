@@ -230,6 +230,8 @@ fi
 
 if [[ "$(uname -m)" == "arm64" ]]; then
   export DOCKER_DEFAULT_PLATFORM=linux/amd64
+  # pgvector publishes arm64 images, so Postgres runs natively instead of under emulation.
+  export GA_POSTGRES_PLATFORM=linux/arm64
 fi
 
 pushd "$DOCKER_DIR" >/dev/null

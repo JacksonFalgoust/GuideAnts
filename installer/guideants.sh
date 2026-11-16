@@ -1047,7 +1047,7 @@ if [[ "$MODE" == "doctor" ]]; then
   exit 0
 fi
 
-[[ "$OS" == "macos" && "$ARCH" == "arm64" && "$COMPOSE_MODE" != "local" ]] && export DOCKER_DEFAULT_PLATFORM=linux/amd64
+[[ "$OS" == "macos" && "$ARCH" == "arm64" && "$COMPOSE_MODE" != "local" ]] && export DOCKER_DEFAULT_PLATFORM=linux/amd64 GA_POSTGRES_PLATFORM=linux/arm64
 
 # Ensure shell scripts have LF endings for Linux containers.
 find "$DOCKER_DIR/build" -name '*.sh' -exec sed -i 's/\r$//' {} + 2>/dev/null || true

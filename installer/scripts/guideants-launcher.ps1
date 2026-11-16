@@ -1481,6 +1481,7 @@ function Fix-CrlfContainers {
 function Start-GuideAntsStack {
     if ($script:OsName -eq 'macos' -and $script:Arch -eq 'arm64' -and $script:ComposeMode -ne 'local') {
         $env:DOCKER_DEFAULT_PLATFORM = 'linux/amd64'
+        $env:GA_POSTGRES_PLATFORM = 'linux/arm64'
     }
 
     Ensure-ShellScriptsUseLf
